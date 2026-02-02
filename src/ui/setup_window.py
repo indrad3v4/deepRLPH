@@ -1,16 +1,13 @@
 # -*- coding: utf-8 -*-
 
 """
-RALPH UI - Refactored Setup Window (Production Ready)
+RALPH UI - Refactored Setup Window (FIXED)
 
-✅ Real PR-002 orchestrator integration (execute_prd_loop)
-✅ Real PR-003 validation display
-✅ Live async/await execution with proper logging
-✅ Code viewer + validation results
-✅ Smart forms (no clunky sliders)
-✅ Proper error handling & threading
-✅ FIXED: DeepSeek client initialization
-✅ FIXED: Project config loading on selection
+✅ Accept orchestrator from main.py (proper dependency injection)
+✅ Use relative imports for PyCharm compatibility
+✅ Remove duplicate DeepSeek client initialization
+✅ Maintain backward compatibility for testing
+✅ Clean architecture
 
 Architecture: Tkinter + asyncio event loop integration
 """
@@ -24,18 +21,21 @@ from pathlib import Path
 from datetime import datetime
 import json
 import os
-from dotenv import load_dotenv
+from typing import Optional
 
-# Load environment variables
-load_dotenv()
-
-# Import orchestrator and models
-from orchestrator import RalphOrchestrator, ProjectConfig, get_orchestrator, ExecutionState
-from deepseek_client import DeepseekClient
-from execution_engine import ExecutionEngine
-from agent_coordinator import AgentCoordinator
-
-
+# ✅ FIXED: Use relative imports from parent package
+try:
+    # When run as module from main.py
+    from ..orchestrator import RalphOrchestrator, ProjectConfig, ExecutionState, get_orchestrator
+    from ..deepseek_client import DeepseekClient
+    from ..execution_engine import ExecutionEngine
+    from ..agent_coordinator import AgentCoordinator
+except ImportError:
+    # Fallback for standalone testing (when src/ is in sys.path)
+    from orchestrator import RalphOrchestrator, ProjectConfig, ExecutionState, get_orchestrator
+    from deepseek_client import DeepseekClient
+    from execution_engine import ExecutionEngine
+    from agent_coordinator import AgentCoordinator
 
 logger = logging.getLogger("RalphUI")
 
@@ -57,37 +57,59 @@ class AsyncioEventLoopThread(threading.Thread):
 
 
 class RalphUI(tk.Tk):
-    """Main RALPH UI - Production Ready"""
+    """Main RALPH UI - Production Ready (FIXED)"""
 
-    def __init__(self, width=1400, height=900):
+    def __init__(
+            self,
+            orchestrator: Optional[RalphOrchestrator] = None,
+            width: int = 1400,
+            height: int = 900
+    ):
+        """
+        Initialize RALPH UI.
+
+        ✅ FIXED: Accept orchestrator from main.py
+
+        Args:
+            orchestrator: Pre-configured orchestrator (from main.py)
+            width: Window width
+            height: Window height
+        """
         super().__init__()
         self.title("🚀 RALPH - AI Architecture Orchestrator")
         self.geometry(f"{width}x{height}")
         self.minsize(1200, 750)
 
-        # ✅ CRITICAL FIX #1: Initialize DeepSeek client
-        deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
-        if not deepseek_api_key:
-            messagebox.showerror("Config Error", "DEEPSEEK_API_KEY not set in .env")
-            raise ValueError("DEEPSEEK_API_KEY required")
+        # ✅ FIX: Use provided orchestrator or create fallback for testing
+        if orchestrator is not None:
+            self.orchestrator = orchestrator
+            logger.info("✅ Using orchestrator from main.py")
+        else:
+            # Fallback for standalone testing
+            logger.warning("⚠️  No orchestrator provided, creating fallback")
+            from dotenv import load_dotenv
+            load_dotenv()
 
-        # ✅ CRITICAL FIX #2: Create DeepseekClient instance
-        try:
-            deepseek_client = DeepseekClient(
-                api_key=deepseek_api_key,
-                model="deepseek-reasoner"
-            )
-            logger.info("✅ DeepSeek client initialized in UI")
-        except Exception as e:
-            logger.error(f"❌ Failed to initialize DeepSeek client: {e}")
-            messagebox.showerror(
-                "DeepSeek Error",
-                f"Failed to initialize DeepSeek client:\n{str(e)}"
-            )
-            raise
+            deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
+            if not deepseek_api_key:
+                messagebox.showerror("Config Error", "DEEPSEEK_API_KEY not set in .env")
+                raise ValueError("DEEPSEEK_API_KEY required")
 
-        # ✅ CRITICAL FIX #3: Pass deepseek_client to orchestrator
-        self.orchestrator = get_orchestrator(deepseek_client=deepseek_client)
+            try:
+                deepseek_client = DeepseekClient(
+                    api_key=deepseek_api_key,
+                    model="deepseek-reasoner"
+                )
+                logger.info("✅ DeepSeek client initialized (fallback mode)")
+            except Exception as e:
+                logger.error(f"❌ Failed to initialize DeepSeek client: {e}")
+                messagebox.showerror(
+                    "DeepSeek Error",
+                    f"Failed to initialize DeepSeek client:\n{str(e)}"
+                )
+                raise
+
+            self.orchestrator = get_orchestrator(deepseek_client=deepseek_client)
 
         # Asyncio event loop thread
         self.async_thread = AsyncioEventLoopThread()
@@ -649,7 +671,7 @@ class RalphUI(tk.Tk):
         }
         self.current_project_id = project_name
 
-        # ✅ CRITICAL FIX: Load project config from disk into orchestrator
+        # ✅ Load project config from disk into orchestrator
         self._load_project_config()
 
         # Update UI
@@ -665,7 +687,7 @@ class RalphUI(tk.Tk):
         self._log(f"📁 Selected project: {project_name}")
 
     def _load_project_config(self):
-        """✅ Load project config from disk and set on orchestrator"""
+        """Load project config from disk and set on orchestrator"""
         if not self.current_project_id:
             return
 
@@ -1016,5 +1038,6 @@ if __name__ == "__main__":
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
 
+    # Fallback mode for testing
     app = RalphUI()
     app.mainloop()

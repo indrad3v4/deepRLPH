@@ -1,9 +1,14 @@
 # -*- coding: utf-8 -*-
 
 """
-orchestrator.py - RALPH Main Orchestrator Engine
+orchestrator.py - RALPH Main Orchestrator Engine (FIXED)
 
 Connects UI (setup_window.py) with agents (deepseek_client, agent_coordinator)
+
+✅ FIXED: 3 systematic bugs accessing PRD fields
+  - BUG 1: _partition_prd_items now uses 'user_stories' not 'items'
+  - BUG 2: _format_prd_summary now uses 'user_stories' not 'items'
+  - BUG 3: execute_prd_loop logging fixed
 
 Handles:
 - Project creation & management
@@ -514,10 +519,12 @@ class RalphOrchestrator:
 
             # ========== STEP 2: PARTITION PRD ITEMS ==========
             partitioned = self._partition_prd_items(prd, num_agents)
-            exec_state.add_log(f"📊 Partitioned {prd.get('total_items', 0)} items across {num_agents} agents")
+            # ✅ FIX BUG 3: Use correct field name in logging
+            total_user_stories = len(prd.get('user_stories', []))
+            exec_state.add_log(f"📊 Partitioned {total_user_stories} user stories across {num_agents} agents")
 
             if log_callback:
-                await log_callback(f"📊 Partitioned items across {num_agents} agents")
+                await log_callback(f"📊 Partitioned {total_user_stories} user stories across {num_agents} agents")
 
             # ========== STEP 3: CREATE ORCHESTRATOR PROMPT ==========
             orchestrator_prompt = self._create_orchestrator_prompt(
@@ -619,6 +626,8 @@ class RalphOrchestrator:
         """
         Partition PRD items round-robin to agents.
 
+        ✅ FIX BUG 1: Use 'user_stories' field (actual PRD format from prd_generator.py)
+
         Returns:
             {
                 "agent_1": [item1, item3, item5, ...],
@@ -626,16 +635,17 @@ class RalphOrchestrator:
                 ...
             }
         """
-        items = prd.get("items", [])
+        # ✅ FIXED: prd_generator.py returns 'user_stories', not 'items'
+        user_stories = prd.get("user_stories", [])
         partitions = {f"agent_{i + 1}": [] for i in range(num_agents)}
 
-        for idx, item in enumerate(items):
+        for idx, story in enumerate(user_stories):
             agent_key = f"agent_{(idx % num_agents) + 1}"
-            partitions[agent_key].append(item)
+            partitions[agent_key].append(story)
 
-        self._log(f"📊 Partitioned {len(items)} items:")
+        self._log(f"📊 Partitioned {len(user_stories)} user stories:")
         for agent_key, agent_items in partitions.items():
-            self._log(f"   {agent_key}: {len(agent_items)} items")
+            self._log(f"   {agent_key}: {len(agent_items)} stories")
 
         return partitions
 
@@ -692,19 +702,24 @@ Start implementation now. Generate complete, working code."""
         return prompt
 
     def _format_prd_summary(self, prd: Dict[str, Any]) -> str:
-        """Format PRD items as readable summary"""
-        summary = ""
-        items = prd.get("items", [])
+        """
+        Format PRD items as readable summary.
 
-        for idx, item in enumerate(items[:10], 1):
-            summary += f"\n{idx}. [{item.get('id', 'N/A')}] {item.get('title', 'Untitled')}\n"
-            summary += f"   Why: {item.get('why', 'N/A')}\n"
-            criteria = item.get('acceptance_criteria', [])
+        ✅ FIX BUG 2: Use 'user_stories' field (actual PRD format)
+        """
+        summary = ""
+        # ✅ FIXED: prd_generator.py returns 'user_stories', not 'items'
+        user_stories = prd.get("user_stories", [])
+
+        for idx, story in enumerate(user_stories[:10], 1):
+            summary += f"\n{idx}. [{story.get('id', 'N/A')}] {story.get('title', 'Untitled')}\n"
+            summary += f"   Why: {story.get('why', 'N/A')}\n"
+            criteria = story.get('acceptance_criteria', [])
             if criteria:
                 summary += f"   Criteria: {' | '.join(criteria[:3])}\n"
 
-        if len(items) > 10:
-            summary += f"\n... and {len(items) - 10} more items\n"
+        if len(user_stories) > 10:
+            summary += f"\n... and {len(user_stories) - 10} more items\n"
 
         return summary
 
