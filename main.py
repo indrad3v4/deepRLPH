@@ -78,7 +78,7 @@ try:
             model="deepseek-reasoner"
         )
         logger.info("✅ DeepSeek client initialized")
-        logger.info(f"   Model: deepseek-reasoner")
+        logger.info("   Model: deepseek-reasoner")
     except Exception as e:
         logger.error(f"❌ Failed to initialize DeepSeek client: {e}")
         print(f"\n❌ ERROR: Could not initialize DeepSeek client: {e}\n")
