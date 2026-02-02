@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 
 """
-RALPH UI - Refactored Setup Window (FIXED)
+RALPH UI - Dynamic Project Setup (API + ML Competition)
 
-✅ Accept orchestrator from main.py (proper dependency injection)
-✅ Use relative imports for PyCharm compatibility
-✅ Remove duplicate DeepSeek client initialization
-✅ Maintain backward compatibility for testing
-✅ Clean architecture
+✅ Radio buttons switch between API Development and ML Competition
+✅ ML Competition: competition URL, problem type, model type, framework, datasets
+✅ Wundernn.io preset for instant ML setup
+✅ Backward compatible with API projects
+✅ Clean conditional rendering
 
 Architecture: Tkinter + asyncio event loop integration
 """
@@ -57,7 +57,7 @@ class AsyncioEventLoopThread(threading.Thread):
 
 
 class RalphUI(tk.Tk):
-    """Main RALPH UI - Production Ready (FIXED)"""
+    """Main RALPH UI - Production Ready with ML Competition Support"""
 
     def __init__(
             self,
@@ -128,7 +128,7 @@ class RalphUI(tk.Tk):
         self._create_layout()
         self._refresh_projects()
 
-        logger.info("✅ RALPH UI initialized (Production Ready)")
+        logger.info("✅ RALPH UI initialized (Production Ready with ML Support)")
 
     def _setup_styles(self):
         """Configure professional UI styles"""
@@ -205,6 +205,7 @@ class RalphUI(tk.Tk):
 📊 Automatic code validation (black, mypy, pytest, pylint)
 ✅ Live progress monitoring
 📝 Complete execution logs
+🤖 ML Competition Support (Wundernn.io, Kaggle, etc.)
 """
         ttk.Label(stats_frame, text=workflow, font=('Arial', 11), justify='left').pack(anchor='w')
 
@@ -254,21 +255,21 @@ class RalphUI(tk.Tk):
         # Projects treeview
         self.projects_tree = ttk.Treeview(
             projects,
-            columns=('Domain', 'Architecture', 'Framework', 'Created'),
+            columns=('Type', 'Domain', 'Framework', 'Created'),
             height=20
         )
         self.projects_tree.pack(fill='both', expand=True, padx=10, pady=10)
 
         # Configure columns
         self.projects_tree.heading('#0', text='Project Name')
+        self.projects_tree.heading('Type', text='Type')
         self.projects_tree.heading('Domain', text='Domain')
-        self.projects_tree.heading('Architecture', text='Architecture')
         self.projects_tree.heading('Framework', text='Framework')
         self.projects_tree.heading('Created', text='Created')
 
         self.projects_tree.column('#0', width=300)
+        self.projects_tree.column('Type', width=150)
         self.projects_tree.column('Domain', width=200)
-        self.projects_tree.column('Architecture', width=200)
         self.projects_tree.column('Framework', width=150)
         self.projects_tree.column('Created', width=200)
 
@@ -550,79 +551,221 @@ class RalphUI(tk.Tk):
         scrollbar.pack(side='right', fill='y')
         self.logs_text.config(yscrollcommand=scrollbar.set)
 
-    # ========== EVENT HANDLERS ==========
+    # ========== IMPROVED: DYNAMIC PROJECT DIALOG ==========
 
     def _new_project_dialog(self):
-        """Create new project dialog"""
+        """✅ IMPROVED: Create new project dialog with dynamic API/ML forms"""
         dialog = tk.Toplevel(self)
         dialog.title("Create New Project")
-        dialog.geometry("500x700")
+        dialog.geometry("600x850")
         dialog.resizable(False, False)
 
         container = ttk.Frame(dialog, padding=20)
         container.pack(fill='both', expand=True)
 
-        # Project name
+        # ========== PROJECT TYPE SELECTOR ==========
+        type_frame = ttk.LabelFrame(container, text="Project Type", padding=15)
+        type_frame.pack(fill='x', pady=(0, 20))
+
+        project_type = tk.StringVar(value="api")
+
+        def on_type_change():
+            """Show/hide fields based on project type"""
+            if project_type.get() == "api":
+                # Show API fields
+                api_fields_frame.pack(fill='x', pady=10)
+                ml_fields_frame.pack_forget()
+            else:
+                # Show ML fields
+                api_fields_frame.pack_forget()
+                ml_fields_frame.pack(fill='x', pady=10)
+
+        ttk.Radiobutton(
+            type_frame,
+            text="🔧 API Development",
+            variable=project_type,
+            value="api",
+            command=on_type_change
+        ).pack(side='left', padx=20)
+
+        ttk.Radiobutton(
+            type_frame,
+            text="🤖 ML Competition",
+            variable=project_type,
+            value="ml",
+            command=on_type_change
+        ).pack(side='left', padx=20)
+
+        # ========== COMMON: PROJECT NAME ==========
         ttk.Label(container, text="Project Name *", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(0, 5))
-        name_entry = ttk.Entry(container, width=50)
+        name_entry = ttk.Entry(container, width=60)
         name_entry.pack(anchor='w', pady=5, fill='x')
 
+        # ========== API DEVELOPMENT FIELDS ==========
+        api_fields_frame = ttk.Frame(container)
+        api_fields_frame.pack(fill='x', pady=10)
+
         # Domain
-        ttk.Label(container, text="Domain *", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(15, 5))
+        ttk.Label(api_fields_frame, text="Domain *", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(10, 5))
         domain_var = tk.StringVar(value="llm-app")
-        domain_combo = ttk.Combobox(
-            container,
+        ttk.Combobox(
+            api_fields_frame,
             textvariable=domain_var,
             values=["llm-app", "backend_api", "web_app", "microservices", "data_pipeline"],
             state='readonly',
-            width=48
-        )
-        domain_combo.pack(anchor='w', pady=5, fill='x')
+            width=57
+        ).pack(anchor='w', pady=5, fill='x')
 
         # Architecture
-        ttk.Label(container, text="Architecture *", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(15, 5))
+        ttk.Label(api_fields_frame, text="Architecture *", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(10, 5))
         arch_var = tk.StringVar(value="clean_architecture")
-        arch_combo = ttk.Combobox(
-            container,
+        ttk.Combobox(
+            api_fields_frame,
             textvariable=arch_var,
             values=["clean_architecture", "mvc", "layered", "microservices"],
             state='readonly',
-            width=48
-        )
-        arch_combo.pack(anchor='w', pady=5, fill='x')
+            width=57
+        ).pack(anchor='w', pady=5, fill='x')
 
         # Framework
-        ttk.Label(container, text="Framework *", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(15, 5))
+        ttk.Label(api_fields_frame, text="Framework *", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(10, 5))
         framework_var = tk.StringVar(value="FastAPI")
-        framework_combo = ttk.Combobox(
-            container,
+        ttk.Combobox(
+            api_fields_frame,
             textvariable=framework_var,
             values=["FastAPI", "Django", "Flask"],
             state='readonly',
-            width=48
-        )
-        framework_combo.pack(anchor='w', pady=5, fill='x')
+            width=57
+        ).pack(anchor='w', pady=5, fill='x')
 
         # Database
-        ttk.Label(container, text="Database *", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(15, 5))
+        ttk.Label(api_fields_frame, text="Database *", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(10, 5))
         db_var = tk.StringVar(value="PostgreSQL")
-        db_combo = ttk.Combobox(
-            container,
+        ttk.Combobox(
+            api_fields_frame,
             textvariable=db_var,
-            values=["PostgreSQL", "MongoDB", "SQLite"],
+            values=["PostgreSQL", "MongoDB", "SQLite", "MySQL"],
             state='readonly',
-            width=48
-        )
-        db_combo.pack(anchor='w', pady=5, fill='x')
+            width=57
+        ).pack(anchor='w', pady=5, fill='x')
 
         # Duration
-        ttk.Label(container, text="Execution Duration (hours) *", font=('Arial', 11, 'bold')).pack(anchor='w',
-                                                                                                   pady=(15, 5))
+        ttk.Label(api_fields_frame, text="Execution Duration (hours) *", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(10, 5))
         duration_var = tk.IntVar(value=4)
-        duration_spin = ttk.Spinbox(container, from_=1, to=24, textvariable=duration_var, width=10)
-        duration_spin.pack(anchor='w', pady=5)
+        ttk.Spinbox(api_fields_frame, from_=1, to=24, textvariable=duration_var, width=10).pack(anchor='w', pady=5)
 
-        # Buttons
+        # ========== ML COMPETITION FIELDS ==========
+        ml_fields_frame = ttk.Frame(container)
+        # Initially hidden
+
+        # Competition URL
+        ttk.Label(ml_fields_frame, text="Competition URL *", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(10, 5))
+        comp_url_var = tk.StringVar(value="https://wundernn.io")
+        ttk.Entry(ml_fields_frame, textvariable=comp_url_var, width=60).pack(anchor='w', pady=5, fill='x')
+
+        # Wundernn.io Preset Button
+        def load_wundernn_preset():
+            """🎯 Load Wundernn.io competition preset"""
+            comp_url_var.set("https://wundernn.io")
+            problem_type_var.set("time_series_forecasting")
+            model_type_var.set("LSTM")
+            ml_framework_var.set("PyTorch")
+            batch_size_var.set(64)
+            epochs_var.set(100)
+            lr_var.set("0.001")
+            eval_metric_var.set("R²")
+            messagebox.showinfo("Preset Loaded", "Wundernn.io configuration loaded!\n\n✅ Problem: Time Series Forecasting\n✅ Model: LSTM\n✅ Framework: PyTorch\n✅ Batch: 64, Epochs: 100")
+
+        ttk.Button(
+            ml_fields_frame,
+            text="🎯 Load Wundernn.io Preset",
+            command=load_wundernn_preset
+        ).pack(anchor='w', pady=10)
+
+        # Problem Type
+        ttk.Label(ml_fields_frame, text="Problem Type *", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(10, 5))
+        problem_type_var = tk.StringVar(value="classification")
+        ttk.Combobox(
+            ml_fields_frame,
+            textvariable=problem_type_var,
+            values=["classification", "regression", "time_series_forecasting", "nlp", "computer_vision"],
+            state='readonly',
+            width=57
+        ).pack(anchor='w', pady=5, fill='x')
+
+        # Model Type
+        ttk.Label(ml_fields_frame, text="Model Type *", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(10, 5))
+        model_type_var = tk.StringVar(value="LSTM")
+        ttk.Combobox(
+            ml_fields_frame,
+            textvariable=model_type_var,
+            values=["LSTM", "GRU", "Transformer", "CNN-LSTM", "RNN", "XGBoost", "Random Forest", "Neural Network"],
+            state='readonly',
+            width=57
+        ).pack(anchor='w', pady=5, fill='x')
+
+        # ML Framework
+        ttk.Label(ml_fields_frame, text="ML Framework *", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(10, 5))
+        ml_framework_var = tk.StringVar(value="PyTorch")
+        ttk.Combobox(
+            ml_fields_frame,
+            textvariable=ml_framework_var,
+            values=["PyTorch", "TensorFlow", "JAX", "Scikit-learn"],
+            state='readonly',
+            width=57
+        ).pack(anchor='w', pady=5, fill='x')
+
+        # Dataset Files
+        dataset_files = []
+        ttk.Label(ml_fields_frame, text="Dataset Files (optional)", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(10, 5))
+        dataset_label = ttk.Label(ml_fields_frame, text="No files selected", foreground="gray")
+        dataset_label.pack(anchor='w', pady=5)
+
+        def browse_datasets():
+            files = filedialog.askopenfilenames(
+                title="Select Dataset Files",
+                filetypes=[("Data files", "*.csv *.json *.hdf5 *.txt"), ("All files", "*.*")]
+            )
+            if files:
+                dataset_files.clear()
+                dataset_files.extend(files)
+                dataset_label.config(text=f"{len(files)} file(s) selected", foreground="green")
+
+        ttk.Button(ml_fields_frame, text="📁 Browse Files...", command=browse_datasets).pack(anchor='w', pady=5)
+
+        # Training Config Row
+        train_config_frame = ttk.Frame(ml_fields_frame)
+        train_config_frame.pack(fill='x', pady=(15, 5))
+
+        ttk.Label(train_config_frame, text="Training Config:", font=('Arial', 11, 'bold')).pack(anchor='w')
+
+        config_row = ttk.Frame(train_config_frame)
+        config_row.pack(fill='x', pady=5)
+
+        ttk.Label(config_row, text="Batch Size:").pack(side='left', padx=(0, 5))
+        batch_size_var = tk.IntVar(value=64)
+        ttk.Spinbox(config_row, from_=8, to=512, textvariable=batch_size_var, width=8).pack(side='left', padx=(0, 20))
+
+        ttk.Label(config_row, text="Epochs:").pack(side='left', padx=(0, 5))
+        epochs_var = tk.IntVar(value=100)
+        ttk.Spinbox(config_row, from_=1, to=1000, textvariable=epochs_var, width=8).pack(side='left', padx=(0, 20))
+
+        ttk.Label(config_row, text="Learning Rate:").pack(side='left', padx=(0, 5))
+        lr_var = tk.StringVar(value="0.001")
+        ttk.Entry(config_row, textvariable=lr_var, width=10).pack(side='left')
+
+        # Evaluation Metric
+        ttk.Label(ml_fields_frame, text="Evaluation Metric *", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(10, 5))
+        eval_metric_var = tk.StringVar(value="R²")
+        ttk.Combobox(
+            ml_fields_frame,
+            textvariable=eval_metric_var,
+            values=["R²", "RMSE", "MAE", "Accuracy", "F1 Score", "AUC-ROC", "Precision", "Recall"],
+            state='readonly',
+            width=57
+        ).pack(anchor='w', pady=5, fill='x')
+
+        # ========== CREATE BUTTON ==========
         btn_frame = ttk.Frame(container)
         btn_frame.pack(fill='x', pady=(30, 0))
 
@@ -632,26 +775,58 @@ class RalphUI(tk.Tk):
                 messagebox.showwarning("Input Error", "Enter project name")
                 return
 
-            config = ProjectConfig(
-                name=name,
-                domain=domain_var.get(),
-                architecture=arch_var.get(),
-                framework=framework_var.get(),
-                database=db_var.get(),
-                duration_hours=duration_var.get()
-            )
+            if project_type.get() == "api":
+                # API Development Project
+                config = ProjectConfig(
+                    name=name,
+                    domain=domain_var.get(),
+                    architecture=arch_var.get(),
+                    framework=framework_var.get(),
+                    database=db_var.get(),
+                    duration_hours=duration_var.get()
+                )
+                project_type_display = "API Development"
+            else:
+                # ML Competition Project
+                config = ProjectConfig(
+                    name=name,
+                    domain=problem_type_var.get(),
+                    architecture="ml_pipeline",
+                    framework=ml_framework_var.get(),
+                    database="None",
+                    duration_hours=24,
+                    # ML-specific metadata
+                    metadata={
+                        "project_type": "ml_competition",
+                        "competition_url": comp_url_var.get(),
+                        "problem_type": problem_type_var.get(),
+                        "model_type": model_type_var.get(),
+                        "ml_framework": ml_framework_var.get(),
+                        "batch_size": batch_size_var.get(),
+                        "epochs": epochs_var.get(),
+                        "learning_rate": float(lr_var.get()),
+                        "eval_metric": eval_metric_var.get(),
+                        "dataset_files": list(dataset_files)
+                    }
+                )
+                project_type_display = "ML Competition"
 
             result = self.orchestrator.create_project(config)
             if result.get("status") == "success":
-                self._log(f"✅ Project created: {result.get('project_id')}")
+                self._log(f"✅ {project_type_display} project created: {result.get('project_id')}")
                 self._refresh_projects()
                 dialog.destroy()
-                messagebox.showinfo("Success", f"Project '{name}' created!")
+                messagebox.showinfo(
+                    "Success",
+                    f"{project_type_display} project '{name}' created!\n\nID: {result.get('project_id')}"
+                )
             else:
                 messagebox.showerror("Error", result.get("error", "Unknown error"))
 
         ttk.Button(btn_frame, text="✅ Create", command=create_project, width=20).pack(side='left', padx=5)
         ttk.Button(btn_frame, text="❌ Cancel", command=dialog.destroy, width=20).pack(side='left', padx=5)
+
+    # ========== EXISTING EVENT HANDLERS (unchanged) ==========
 
     def _on_project_selected(self, event):
         """Handle project selection"""
@@ -665,8 +840,8 @@ class RalphUI(tk.Tk):
 
         self.current_project = {
             'name': project_name,
-            'domain': values[0] if len(values) > 0 else '',
-            'architecture': values[1] if len(values) > 1 else '',
+            'type': values[0] if len(values) > 0 else 'API',
+            'domain': values[1] if len(values) > 1 else '',
             'framework': values[2] if len(values) > 2 else '',
         }
         self.current_project_id = project_name
@@ -676,7 +851,7 @@ class RalphUI(tk.Tk):
 
         # Update UI
         self.refine_project_label.config(
-            text=f"✅ {project_name} ({self.current_project['domain']})",
+            text=f"✅ {project_name} ({self.current_project['type']}: {self.current_project['domain']})",
             foreground=self.colors['accent_green']
         )
         self.exec_project_label.config(text=project_name)
@@ -684,7 +859,7 @@ class RalphUI(tk.Tk):
         # Load PRD if exists
         self._load_project_prd()
 
-        self._log(f"📁 Selected project: {project_name}")
+        self._log(f"📁 Selected project: {project_name} ({self.current_project['type']})")
 
     def _load_project_config(self):
         """Load project config from disk and set on orchestrator"""
@@ -712,7 +887,8 @@ class RalphUI(tk.Tk):
                     testing_coverage=config_data.get('testing_coverage', 85),
                     parallel_agents=config_data.get('parallel_agents', 4),
                     deployment_target=config_data.get('deployment_target', 'Docker'),
-                    timestamp=config_data.get('timestamp', '')
+                    timestamp=config_data.get('timestamp', ''),
+                    metadata=config_data.get('metadata', {})
                 )
 
                 self.orchestrator.current_project_dir = projects_dir / self.current_project_id
@@ -751,11 +927,20 @@ class RalphUI(tk.Tk):
 
         projects = self.orchestrator.list_projects()
         for p in projects:
+            # Detect project type from metadata
+            project_type = p.get('metadata', {}).get('project_type', 'API')
+            if project_type == 'ml_competition':
+                type_display = "ML Competition"
+                framework_display = p.get('metadata', {}).get('ml_framework', 'PyTorch')
+            else:
+                type_display = "API Development"
+                framework_display = p.get('framework', 'FastAPI')
+
             self.projects_tree.insert(
                 '',
                 'end',
                 text=p['project_id'],
-                values=(p['domain'], p['architecture'], 'FastAPI', p['created_at'][:10])
+                values=(type_display, p['domain'], framework_display, p['created_at'][:10])
             )
 
         self.projects_status.config(
@@ -999,11 +1184,25 @@ RALPH - AI Architecture Orchestrator
 ====================================
 
 WORKFLOW:
-1. 📁 Create Project - Define your project (domain, framework, database)
+1. 📁 Create Project - Define your project (API Development or ML Competition)
 2. 📝 Task Refinement - Enter raw task → AI clarifies + generates PRD (PR-000/001)
 3. ⚙️ Execution - Run 4 parallel agents to implement PRD items (PR-002)
 4. ✅ Validation - Auto-validate code (black, mypy, pylint, pytest) (PR-003)
 5. 📋 Logs - Monitor all execution in real-time
+
+PROJECT TYPES:
+
+🔧 API Development:
+- Traditional backend/web applications
+- Choose domain, architecture, framework, database
+- Examples: FastAPI REST API, Django web app, Flask microservice
+
+🤖 ML Competition:
+- Machine learning competitions (Wundernn.io, Kaggle, etc.)
+- Specify competition URL, problem type, model type, ML framework
+- Upload dataset files
+- Configure training parameters (batch size, epochs, learning rate)
+- One-click Wundernn.io preset for quick setup
 
 KEY FEATURES:
 ✅ Multi-agent execution (up to 8 parallel agents)
@@ -1012,17 +1211,21 @@ KEY FEATURES:
 ✅ Real-time execution logs
 ✅ PRD generation from raw tasks
 ✅ Professional code generation with type hints
+✅ Dynamic project forms (API/ML)
+✅ ML competition support with presets
 
 TIPS:
 • Be specific in task descriptions for better PRD generation
 • Set agents to 4-6 for optimal performance
 • Check logs during execution for real-time updates
 • Validation provides detailed reports on code quality
+• Use Wundernn.io preset for quick ML competition setup
+• Upload datasets for ML projects to ensure proper data handling
 """
 
         doc_win = tk.Toplevel(self)
         doc_win.title("Documentation")
-        doc_win.geometry("600x700")
+        doc_win.geometry("700x800")
 
         text = tk.Text(doc_win, wrap='word', font=('Arial', 10))
         text.pack(fill='both', expand=True, padx=10, pady=10)
