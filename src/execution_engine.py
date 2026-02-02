@@ -1,6 +1,10 @@
+# Updated execution_engine.py
+
 # -*- coding: utf-8 -*-
+
 """
 execution_engine.py - Real orchestration with DeepSeek integration
+
 Connects UI → Orchestrator → DeepSeek API → Code Generation
 """
 
@@ -48,11 +52,10 @@ class ExecutionEngine:
         self.coordinator = agent_coordinator
         self.log_callback = log_callback or self._default_log
         self.progress_callback = progress_callback or self._default_progress
-
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         logger.info(f"✅ ExecutionEngine initialized")
-        logger.info(f"   Output dir: {self.output_dir}")
+        logger.info(f" Output dir: {self.output_dir}")
 
     def _default_log(self, message: str):
         """Default logging (fallback)"""
@@ -83,26 +86,28 @@ class ExecutionEngine:
         """
         try:
             self._log(f"🚀 Starting RALPHlooping")
-            self._log(f"   Agents: {num_agents} | Duration: {duration_hours}h | Thinking: {thinking_budget:,} tokens")
+            self._log(
+                f" Agents: {num_agents} | Duration: {duration_hours}h | Thinking: {thinking_budget:,} tokens"
+            )
             self._log("")
 
             # Step 1: Create subtasks
             self._log("📋 Creating subtasks for agents...")
             subtasks = self.coordinator.create_subtasks(task_description, num_agents)
             self._progress(10)
-            self._log(f"   Created {len(subtasks)} subtasks")
+            self._log(f" Created {len(subtasks)} subtasks")
             self._log("")
 
             # Step 2: Call agents in parallel
             self._log(f"🤖 Spawning {num_agents} agents...")
-            self._log(f"   Calling DeepSeek API (deepseek-v3.2)...")
-
+            self._log(f" Calling DeepSeek API (deepseek-v3.2)...")
             results = await self.deepseek.coordinate_agents(
                 system_prompt=self._get_system_prompt(),
                 subtasks=subtasks,
                 num_agents=num_agents,
                 thinking_budget=thinking_budget,
             )
+
             self._progress(60)
             self._log(f"✅ Agents completed")
             self._log("")
@@ -111,15 +116,17 @@ class ExecutionEngine:
             self._log("📦 Aggregating results...")
             aggregated = await self.coordinator.aggregate_results(results)
             self._progress(80)
-            self._log(f"   Successful agents: {aggregated['successful_agents']}/{aggregated['total_agents']}")
-            self._log(f"   Code artifacts: {len(aggregated['artifacts'])}")
+            self._log(
+                f" Successful agents: {aggregated['successful_agents']}/{aggregated['total_agents']}"
+            )
+            self._log(f" Code artifacts: {len(aggregated['artifacts'])}")
             self._log("")
 
             # Step 4: Extract and save code
             self._log("💾 Saving generated code...")
             code_files = await self._save_artifacts(results)
             self._progress(95)
-            self._log(f"   Saved {len(code_files)} files")
+            self._log(f" Saved {len(code_files)} files")
             self._log("")
 
             # Step 5: Generate report
@@ -127,9 +134,12 @@ class ExecutionEngine:
             self.coordinator.report_coordination()
             self._progress(100)
             self._log("")
+
             self._log("✅ RALPHlooping Complete!")
-            self._log(f"   Total tokens used: {aggregated['statistics']['total_tokens']:,}")
-            self._log(f"   Output directory: {self.output_dir}")
+            self._log(
+                f" Total tokens used: {aggregated['statistics']['total_tokens']:,}"
+            )
+            self._log(f" Output directory: {self.output_dir}")
 
             return {
                 "status": "success",
@@ -161,21 +171,20 @@ class ExecutionEngine:
 
             # Parse code blocks from markdown
             import re
+
             code_blocks = re.findall(
-                r'```(\w+)?\n(.*?)\n```',
-                response_text,
-                re.DOTALL
+                r"```(\w+)?\n(.*?)\n```", response_text, re.DOTALL
             )
 
             for block_idx, (lang, code) in enumerate(code_blocks, 1):
                 # Infer filename from content
                 filename = self._infer_filename(code, lang, block_idx)
-
                 file_path = agent_dir / filename
+
                 try:
-                    file_path.write_text(code, encoding='utf-8')
+                    file_path.write_text(code, encoding="utf-8")
                     saved_files.append(str(file_path))
-                    self._log(f"   💾 {filename} ({len(code)} bytes)")
+                    self._log(f" 💾 {filename} ({len(code)} bytes)")
                 except Exception as e:
                     logger.error(f"Error saving {filename}: {e}")
 
@@ -183,35 +192,34 @@ class ExecutionEngine:
 
     def _infer_filename(self, code: str, lang: str, block_idx: int) -> str:
         """Infer filename from code content"""
-        # Try to detect class/function name
         import re
 
         # Python class
-        match = re.search(r'^class\s+(\w+)', code, re.MULTILINE)
+        match = re.search(r"^class\s+(\w+)", code, re.MULTILINE)
         if match:
             return f"{match.group(1).lower()}.py"
 
         # Python function
-        match = re.search(r'^def\s+(\w+)', code, re.MULTILINE)
+        match = re.search(r"^def\s+(\w+)", code, re.MULTILINE)
         if match:
             return f"{match.group(1)}.py"
 
         # Fallback
         lang_ext = {
-            'python': 'py',
-            'javascript': 'js',
-            'typescript': 'ts',
-            'sql': 'sql',
-            'html': 'html',
-            'css': 'css',
+            "python": "py",
+            "javascript": "js",
+            "typescript": "ts",
+            "sql": "sql",
+            "html": "html",
+            "css": "css",
         }
-        ext = lang_ext.get(lang, 'txt')
+
+        ext = lang_ext.get(lang, "txt")
         return f"code_block_{block_idx}.{ext}"
 
     def _get_system_prompt(self) -> str:
         """Get system prompt for agents"""
         return """You are an expert software architect and developer participating in a multi-agent system.
-
 Your task is to generate high-quality, production-ready code for your assigned module.
 
 Requirements:
@@ -273,8 +281,10 @@ def run_execution_async(
                 thinking_budget=thinking_budget,
             )
         )
+
         loop.close()
         return result
+
     except Exception as e:
         logger.error(f"Async execution error: {e}", exc_info=True)
         return {"status": "error", "error": str(e)}
