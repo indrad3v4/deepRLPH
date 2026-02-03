@@ -8,6 +8,7 @@ RALPH UI - Dynamic Project Setup (API + ML Competition)
 ✅ Wundernn.io preset for instant ML setup
 ✅ Backward compatible with API projects
 ✅ Clean conditional rendering
+✅ FIXED: Force GUI refresh after project creation
 
 Architecture: Tkinter + asyncio event loop integration
 """
@@ -814,11 +815,15 @@ class RalphUI(tk.Tk):
             result = self.orchestrator.create_project(config)
             if result.get("status") == "success":
                 self._log(f"✅ {project_type_display} project created: {result.get('project_id')}")
+                
+                # ✅ FIX: Force refresh and UI update
                 self._refresh_projects()
+                
                 dialog.destroy()
+                
                 messagebox.showinfo(
                     "Success",
-                    f"{project_type_display} project '{name}' created!\n\nID: {result.get('project_id')}"
+                    f"{project_type_display} project '{name}' created!\n\nID: {result.get('project_id')}\n\nCheck the Projects tab to see it!"
                 )
             else:
                 messagebox.showerror("Error", result.get("error", "Unknown error"))
@@ -868,7 +873,7 @@ class RalphUI(tk.Tk):
 
         try:
             projects_dir = self.orchestrator.workspace / "projects"
-            config_file = projects_dir / self.current_project_id / "workspace" / "config" / "config.json"
+            config_file = projects_dir / self.current_project_id / "config.json"
 
             if config_file.exists():
                 with open(config_file, 'r', encoding='utf-8') as f:
@@ -921,31 +926,64 @@ class RalphUI(tk.Tk):
             self._log(f"⚠️ Could not load PRD: {e}")
 
     def _refresh_projects(self):
-        """Refresh projects list"""
-        for item in self.projects_tree.get_children():
-            self.projects_tree.delete(item)
+        """✅ FIXED: Refresh projects list with UI update"""
+        try:
+            logger.info("🔄 Refreshing projects list...")
+            
+            # Clear existing items
+            for item in self.projects_tree.get_children():
+                self.projects_tree.delete(item)
 
-        projects = self.orchestrator.list_projects()
-        for p in projects:
-            # Detect project type from metadata
-            project_type = p.get('metadata', {}).get('project_type', 'API')
-            if project_type == 'ml_competition':
-                type_display = "ML Competition"
-                framework_display = p.get('metadata', {}).get('ml_framework', 'PyTorch')
-            else:
-                type_display = "API Development"
-                framework_display = p.get('framework', 'FastAPI')
+            # Get projects from orchestrator
+            projects = self.orchestrator.list_projects()
+            logger.info(f"📊 Found {len(projects)} projects")
+            
+            # Populate tree
+            for p in projects:
+                try:
+                    # Detect project type from metadata
+                    project_type = p.get('metadata', {}).get('project_type', 'API')
+                    if project_type == 'ml_competition':
+                        type_display = "ML Competition"
+                        framework_display = p.get('metadata', {}).get('ml_framework', 'PyTorch')
+                    else:
+                        type_display = "API Development"
+                        framework_display = p.get('framework', 'FastAPI')
 
-            self.projects_tree.insert(
-                '',
-                'end',
-                text=p['project_id'],
-                values=(type_display, p['domain'], framework_display, p['created_at'][:10])
+                    # ✅ FIX: Safe date formatting
+                    created_at = p.get('created_at', '')
+                    if created_at and len(created_at) >= 10:
+                        created_display = created_at[:10]
+                    else:
+                        created_display = datetime.now().strftime("%Y-%m-%d")
+
+                    self.projects_tree.insert(
+                        '',
+                        'end',
+                        text=p['project_id'],
+                        values=(type_display, p['domain'], framework_display, created_display)
+                    )
+                    logger.info(f"   ✅ Added: {p['project_id']}")
+                    
+                except Exception as e:
+                    logger.warning(f"   ⚠️ Failed to add project {p.get('project_id', 'unknown')}: {e}")
+                    continue
+
+            self.projects_status.config(
+                text=f"💡 {len(projects)} project{'s' if len(projects) != 1 else ''} found"
             )
-
-        self.projects_status.config(
-            text=f"💡 {len(projects)} projects found"
-        )
+            
+            # ✅ CRITICAL FIX: Force UI update
+            self.update_idletasks()
+            self.update()
+            
+            logger.info("✅ Projects list refreshed successfully")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to refresh projects: {e}", exc_info=True)
+            self.projects_status.config(
+                text=f"❌ Error refreshing projects: {str(e)}"
+            )
 
     def _start_task_refinement(self):
         """Start task clarification + PRD generation"""
