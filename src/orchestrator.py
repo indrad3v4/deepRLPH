@@ -773,17 +773,20 @@ class RalphOrchestrator:
             if log_callback:
                 await log_callback("⚙️ Spawning parallel agents...")
 
+            # ✅ FIX: Make callbacks async-compatible
+            async def async_progress_callback(p):
+                await self._handle_progress(exec_state, p, progress_callback)
+
+            async def async_log_callback(msg):
+                await self._handle_log(exec_state, msg, log_callback)
+
             execution_results = await self.execution_engine.execute(
                 execution_id=execution_id,
                 orchestrator_prompt=orchestrator_prompt,
                 prd_partitions=partitioned,
                 num_agents=num_agents,
-                progress_callback=lambda p: self._handle_progress(
-                    exec_state, p, progress_callback
-                ),
-                log_callback=lambda msg: self._handle_log(
-                    exec_state, msg, log_callback
-                ),
+                progress_callback=async_progress_callback,
+                log_callback=async_log_callback,
             )
 
             if execution_results.get("status") == "success":
@@ -976,7 +979,10 @@ Start implementation now. Generate complete, working code."""
     ) -> None:
         """Handle progress updates"""
         if callback:
-            await callback(progress)
+            if asyncio.iscoroutinefunction(callback):
+                await callback(progress)
+            else:
+                callback(progress)
 
     async def _handle_log(
             self,
@@ -987,7 +993,10 @@ Start implementation now. Generate complete, working code."""
         """Handle log messages"""
         exec_state.add_log(message)
         if callback:
-            await callback(message)
+            if asyncio.iscoroutinefunction(callback):
+                await callback(message)
+            else:
+                callback(message)
 
     async def execute_validation_loop(
             self,
