@@ -734,8 +734,16 @@ class RalphOrchestrator:
             progress_callback: Optional[Callable] = None,
     ) -> Dict[str, Any]:
         """Execute PRD items in parallel (PR-002)"""
+        # 🔍 DEBUG: Log function entry
+        logger.info("🔍 [DEBUG] execute_prd_loop() CALLED")
+        logger.info(f"🔍 [DEBUG] num_agents: {num_agents}")
+        logger.info(f"🔍 [DEBUG] log_callback type: {type(log_callback)}")
+        logger.info(f"🔍 [DEBUG] progress_callback type: {type(progress_callback)}")
+        
         try:
             execution_id = f"exec_{self._generate_project_id('')}"
+            logger.info(f"🔍 [DEBUG] Generated execution_id: {execution_id}")
+            
             exec_state = ExecutionState(
                 execution_id=execution_id,
                 project_id=self.current_config.name if self.current_config else "unknown",
@@ -744,42 +752,65 @@ class RalphOrchestrator:
                 total_items=prd.get("total_items", 0),
             )
             self.executions[execution_id] = exec_state
+            logger.info("🔍 [DEBUG] ExecutionState created")
 
             exec_state.add_log("🚀 Starting parallel execution")
             if log_callback:
                 await log_callback("🚀 Starting parallel execution")
 
+            logger.info("🔍 [DEBUG] Partitioning PRD items...")
             partitioned = self._partition_prd_items(prd, num_agents)
             total_user_stories = len(prd.get('user_stories', []))
+            logger.info(f"🔍 [DEBUG] Partitioned {total_user_stories} stories")
+            
             exec_state.add_log(f"📊 Partitioned {total_user_stories} user stories across {num_agents} agents")
 
             if log_callback:
                 await log_callback(f"📊 Partitioned {total_user_stories} user stories across {num_agents} agents")
 
+            logger.info("🔍 [DEBUG] Creating orchestrator prompt...")
             orchestrator_prompt = self._create_orchestrator_prompt(
                 prd=prd,
                 config=self.current_config,
                 domain=self.current_config.domain if self.current_config else "web_app"
             )
+            logger.info(f"🔍 [DEBUG] Orchestrator prompt created, length: {len(orchestrator_prompt)}")
 
             if not self.execution_engine:
+                logger.error("🔍 [DEBUG] ExecutionEngine is None!")
                 return {
                     "status": "failed",
                     "error": "ExecutionEngine not initialized. Wire it in main.py",
                     "execution_id": execution_id
                 }
+            
+            logger.info(f"🔍 [DEBUG] ExecutionEngine exists: {type(self.execution_engine)}")
 
             exec_state.add_log("⚙️ Spawning parallel agents...")
             if log_callback:
                 await log_callback("⚙️ Spawning parallel agents...")
 
             # ✅ FIX: Make callbacks async-compatible
+            logger.info("🔍 [DEBUG] Creating async callback wrappers...")
+            
             async def async_progress_callback(p):
+                logger.info(f"🔍 [DEBUG] async_progress_callback called with {p}")
                 await self._handle_progress(exec_state, p, progress_callback)
 
             async def async_log_callback(msg):
+                logger.info(f"🔍 [DEBUG] async_log_callback called: {msg[:50]}...")
                 await self._handle_log(exec_state, msg, log_callback)
-
+            
+            logger.info("🔍 [DEBUG] Async callbacks created")
+            logger.info("🔍 [DEBUG] ========================================")
+            logger.info("🔍 [DEBUG] CALLING execution_engine.execute()...")
+            logger.info("🔍 [DEBUG] ========================================")
+            logger.info(f"🔍 [DEBUG] Parameters:")
+            logger.info(f"🔍 [DEBUG]   execution_id: {execution_id}")
+            logger.info(f"🔍 [DEBUG]   num_agents: {num_agents}")
+            logger.info(f"🔍 [DEBUG]   partitions: {len(partitioned)} agents")
+            logger.info(f"🔍 [DEBUG]   prompt length: {len(orchestrator_prompt)}")
+            
             execution_results = await self.execution_engine.execute(
                 execution_id=execution_id,
                 orchestrator_prompt=orchestrator_prompt,
@@ -788,8 +819,15 @@ class RalphOrchestrator:
                 progress_callback=async_progress_callback,
                 log_callback=async_log_callback,
             )
+            
+            logger.info("🔍 [DEBUG] ========================================")
+            logger.info("🔍 [DEBUG] execution_engine.execute() RETURNED")
+            logger.info("🔍 [DEBUG] ========================================")
+            logger.info(f"🔍 [DEBUG] Result status: {execution_results.get('status')}")
+            logger.info(f"🔍 [DEBUG] Result keys: {list(execution_results.keys())}")
 
             if execution_results.get("status") == "success":
+                logger.info("🔍 [DEBUG] Processing success results...")
                 exec_state.status = "completed"
                 for agent_id, agent_result in execution_results.get("agents", {}).items():
                     for item in agent_result.get("completed_items", []):
@@ -805,6 +843,7 @@ class RalphOrchestrator:
                             error=item.get("error", "Unknown error")
                         )
             else:
+                logger.info("🔍 [DEBUG] Processing partial/failed results...")
                 exec_state.status = "partial" if exec_state.completed_items > 0 else "failed"
                 exec_state.error_message = execution_results.get("error", "Execution failed")
 
@@ -812,6 +851,7 @@ class RalphOrchestrator:
                     datetime.now() - datetime.fromisoformat(exec_state.start_time)
             ).total_seconds()
 
+            logger.info("🔍 [DEBUG] Saving execution state...")
             state_file = (
                     self.current_project_dir / "workspace" / "output" / "logs" /
                     f"execution_{execution_id}.json"
@@ -824,6 +864,7 @@ class RalphOrchestrator:
             if progress_callback:
                 await progress_callback(100.0)
 
+            logger.info("🔍 [DEBUG] execute_prd_loop() COMPLETE")
             return {
                 "status": "success" if exec_state.status == "completed" else exec_state.status,
                 "execution_id": execution_id,
@@ -837,8 +878,8 @@ class RalphOrchestrator:
             }
 
         except Exception as e:
+            logger.error(f"🔍 [DEBUG] EXCEPTION in execute_prd_loop: {e}", exc_info=True)
             self._log(f"❌ Execution failed: {e}")
-            logger.error(f"Execute PRD loop error: {e}", exc_info=True)
             return {
                 "status": "error",
                 "error": str(e),
@@ -978,6 +1019,7 @@ Start implementation now. Generate complete, working code."""
             callback: Optional[Callable] = None
     ) -> None:
         """Handle progress updates"""
+        logger.info(f"🔍 [DEBUG] _handle_progress: {progress}%")
         if callback:
             if asyncio.iscoroutinefunction(callback):
                 await callback(progress)
@@ -991,6 +1033,7 @@ Start implementation now. Generate complete, working code."""
             callback: Optional[Callable] = None
     ) -> None:
         """Handle log messages"""
+        logger.info(f"🔍 [DEBUG] _handle_log: {message[:100]}")
         exec_state.add_log(message)
         if callback:
             if asyncio.iscoroutinefunction(callback):
