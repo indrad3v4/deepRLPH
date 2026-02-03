@@ -77,59 +77,68 @@ try:
             api_key=deepseek_api_key,
             model="deepseek-reasoner"
         )
-        logger.info("DeepSeek client initialized")
+        logger.info("✅ DeepSeek client initialized")
         logger.info("   Model: deepseek-reasoner")
     except Exception as e:
-        logger.error("Failed to initialize DeepSeek client: %s", e)
+        logger.error("❌ Failed to initialize DeepSeek client: %s", e)
         print("\nERROR: Could not initialize DeepSeek client: %s\n" % e)
         sys.exit(1)
 
     # STEP 3: INITIALIZE WORKSPACE
 
-    logger.info("Setting up workspace...")
+    logger.info("📂 Setting up workspace...")
 
     workspace_path = Path("./workspace")
     workspace_path.mkdir(parents=True, exist_ok=True)
 
-    logger.info("Workspace: %s", workspace_path.absolute())
+    logger.info("✅ Workspace: %s", workspace_path.absolute())
 
     # STEP 4: INITIALIZE AGENT COORDINATOR
 
-    logger.info("Initializing Agent Coordinator...")
+    logger.info("🤖 Initializing Agent Coordinator...")
 
     try:
         agent_coordinator = AgentCoordinator(workspace=workspace_path)
-        logger.info("AgentCoordinator initialized")
+        logger.info("✅ AgentCoordinator initialized")
     except Exception as e:
-        logger.error("Failed to initialize AgentCoordinator: %s", e)
+        logger.error("❌ Failed to initialize AgentCoordinator: %s", e)
         print("\nERROR: Could not initialize AgentCoordinator: %s\n" % e)
         sys.exit(1)
 
     # STEP 5: INITIALIZE EXECUTION ENGINE
 
-    logger.info("Initializing Execution Engine...")
+    logger.info("⚙️ Initializing Execution Engine...")
 
-    # Note: ExecutionEngine will be initialized per-project with proper project_dir
-    # We pass the dependencies to orchestrator, which will create ExecutionEngine when needed
-
-    logger.info("ExecutionEngine ready (will initialize per-project)")
+    try:
+        # ✅ FIX: Create ExecutionEngine with deepseek_client
+        execution_engine = ExecutionEngine(
+            deepseek_client=deepseek_client,
+            workspace=workspace_path
+        )
+        logger.info("✅ ExecutionEngine initialized")
+        logger.info("   Workspace: %s", workspace_path.absolute())
+    except Exception as e:
+        logger.error("❌ Failed to initialize ExecutionEngine: %s", e, exc_info=True)
+        print("\nERROR: Could not initialize ExecutionEngine: %s\n" % e)
+        sys.exit(1)
 
     # STEP 6: INITIALIZE ORCHESTRATOR
 
-    logger.info("Initializing Orchestrator...")
+    logger.info("🎼 Initializing Orchestrator...")
 
     try:
-        # FIX: Pass deepseek_client to orchestrator
-        # ExecutionEngine will be created per-project, but we pass dependencies
+        # ✅ FIX: Pass execution_engine to orchestrator (not None)
         orchestrator = get_orchestrator(
             workspace_dir=workspace_path,
             deepseek_client=deepseek_client,
-            execution_engine=None,  # Will be created per-project
+            execution_engine=execution_engine,  # ✅ FIXED: Pass actual engine
             agent_coordinator=agent_coordinator,
         )
-        logger.info("Orchestrator initialized")
+        logger.info("✅ Orchestrator initialized")
+        logger.info("   ExecutionEngine: wired")
+        logger.info("   AgentCoordinator: wired")
     except Exception as e:
-        logger.error("Failed to initialize Orchestrator: %s", e)
+        logger.error("❌ Failed to initialize Orchestrator: %s", e)
         print("\nERROR: Could not initialize Orchestrator: %s\n" % e)
         sys.exit(1)
 
@@ -137,32 +146,32 @@ try:
 
     # STEP 7: LAUNCH UI
 
-    logger.info("Starting GUI...")
+    logger.info("🚀 Starting GUI...")
     logger.info("")
     logger.info("=" * 70)
-    logger.info("System ready! UI should appear in a new window.")
+    logger.info("✅ System ready! UI should appear in a new window.")
     logger.info("=" * 70)
     logger.info("")
 
-    # FIX: Pass orchestrator to UI (UI will use the pre-wired orchestrator)
+    # ✅ FIX: Pass orchestrator to UI (UI will use the pre-wired orchestrator)
     app = RalphUI(orchestrator=orchestrator)
     app.mainloop()
 
     logger.info("")
-    logger.info("RALPH shutdown complete")
+    logger.info("👋 RALPH shutdown complete")
 
 except ImportError as e:
-    logger.error("Import Error: %s", e, exc_info=True)
+    logger.error("❌ Import Error: %s", e, exc_info=True)
     print("\nIMPORT ERROR: %s\n" % e)
     print("Make sure all dependencies are installed:")
     print("  pip install -r requirements.txt\n")
     sys.exit(1)
 
 except KeyboardInterrupt:
-    logger.info("\nInterrupted by user")
+    logger.info("\n✋ Interrupted by user")
     sys.exit(0)
 
 except Exception as e:
-    logger.error("Fatal Error: %s", e, exc_info=True)
+    logger.error("❌ Fatal Error: %s", e, exc_info=True)
     print("\nFATAL ERROR: %s\n" % e)
     sys.exit(1)
