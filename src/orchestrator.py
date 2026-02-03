@@ -777,12 +777,22 @@ class RalphOrchestrator:
             logger.info(f"🔍 [DEBUG] Orchestrator prompt created, length: {len(orchestrator_prompt)}")
 
             if not self.execution_engine:
-                logger.error("🔍 [DEBUG] ExecutionEngine is None!")
-                return {
-                    "status": "failed",
-                    "error": "ExecutionEngine not initialized. Wire it in main.py",
-                    "execution_id": execution_id
-                }
+                logger.info("🔍 [DEBUG] Creating ExecutionEngine for current project...")
+                if not self.current_project_dir:
+                    logger.error("❌ No project directory set!")
+                    return {
+                        "status": "failed",
+                        "error": "No project loaded. Create a project first.",
+                        "execution_id": execution_id
+                    }
+
+                from execution_engine import ExecutionEngine
+                self.execution_engine = ExecutionEngine(
+                    project_dir=self.current_project_dir,
+                    deepseek_client=self.deepseek_client,
+                    agent_coordinator=self.agent_coordinator,
+                )
+                logger.info("✅ ExecutionEngine created for project: %s", self.current_project_dir)
             
             logger.info(f"🔍 [DEBUG] ExecutionEngine exists: {type(self.execution_engine)}")
 

@@ -1,0 +1,29 @@
+{
+  "name": "wundernn.io",
+  "domain": "time_series_forecasting",
+  "description": "",
+  "project_type": "api_dev",
+  "architecture": "ml_pipeline",
+  "framework": "PyTorch",
+  "language": "Python",
+  "database": "None",
+  "duration_hours": 24,
+  "target_lines_of_code": 5000,
+  "testing_coverage": 85,
+  "parallel_agents": 4,
+  "deployment_target": "Docker",
+  "ml_config": null,
+  "metadata": {
+    "project_type": "ml_competition",
+    "competition_url": "https://wundernn.io",
+    "problem_type": "time_series_forecasting",
+    "model_type": "Neural Network",
+    "ml_framework": "PyTorch",
+    "batch_size": 64,
+    "epochs": 100,
+    "learning_rate": 0.001,
+    "eval_metric": "R\u00b2",
+    "dataset_files": []
+  },
+  "timestamp": "2026-02-03T01:24:25.696016"
+}

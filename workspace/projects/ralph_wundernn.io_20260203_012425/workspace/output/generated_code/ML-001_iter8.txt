@@ -1,0 +1,1 @@
+# Error calling DeepSeek: 'DeepseekClient' object has no attribute 'chat'
