@@ -3,9 +3,9 @@
 main.py - RALPH Entry Point (FIXED)
 
 Proper component wiring
-AgentCoordinator initialization
-ExecutionEngine created per-project
+ExecutionEngine + AgentCoordinator initialization
 Pass all dependencies to orchestrator
+Pass orchestrator to UI
 """
 
 import sys
@@ -105,26 +105,29 @@ try:
         print("\nERROR: Could not initialize AgentCoordinator: %s\n" % e)
         sys.exit(1)
 
-    # STEP 5: EXECUTION ENGINE - Created per-project
+    # STEP 5: NOTE ABOUT EXECUTION ENGINE
+    # ExecutionEngine is created PER-PROJECT (requires project_dir)
+    # We'll create it in orchestrator when a project is selected
+    # For now, we pass None and orchestrator will handle project-specific engine
 
-    logger.info("⚙️ ExecutionEngine will be created per-project")
+    logger.info("✅ ExecutionEngine will be initialized per-project")
 
     # STEP 6: INITIALIZE ORCHESTRATOR
 
     logger.info("🎼 Initializing Orchestrator...")
 
     try:
-        # ✅ CORRECT: Pass None for execution_engine (created per-project in orchestrator)
+        # Pass dependencies - orchestrator will create ExecutionEngine when project is ready
         orchestrator = get_orchestrator(
             workspace_dir=workspace_path,
             deepseek_client=deepseek_client,
-            execution_engine=None,  # ✅ Created per-project with project_dir
+            execution_engine=None,  # Will be created per-project with project_dir
             agent_coordinator=agent_coordinator,
         )
         logger.info("✅ Orchestrator initialized")
-        logger.info("   DeepSeek client: wired")
+        logger.info("   DeepSeek: wired")
         logger.info("   AgentCoordinator: wired")
-        logger.info("   ExecutionEngine: per-project")
+        logger.info("   ExecutionEngine: per-project (lazy init)")
     except Exception as e:
         logger.error("❌ Failed to initialize Orchestrator: %s", e)
         print("\nERROR: Could not initialize Orchestrator: %s\n" % e)
@@ -141,7 +144,7 @@ try:
     logger.info("=" * 70)
     logger.info("")
 
-    # ✅ Pass orchestrator to UI
+    # Pass orchestrator to UI (UI will use the pre-wired orchestrator)
     app = RalphUI(orchestrator=orchestrator)
     app.mainloop()
 
