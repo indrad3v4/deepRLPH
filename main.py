@@ -3,9 +3,9 @@
 main.py - RALPH Entry Point (FIXED)
 
 Proper component wiring
-ExecutionEngine + AgentCoordinator initialization
+AgentCoordinator initialization
+ExecutionEngine created per-project
 Pass all dependencies to orchestrator
-Pass orchestrator to UI
 """
 
 import sys
@@ -105,38 +105,26 @@ try:
         print("\nERROR: Could not initialize AgentCoordinator: %s\n" % e)
         sys.exit(1)
 
-    # STEP 5: INITIALIZE EXECUTION ENGINE
+    # STEP 5: EXECUTION ENGINE - Created per-project
 
-    logger.info("⚙️ Initializing Execution Engine...")
-
-    try:
-        # ✅ FIX: Create ExecutionEngine with deepseek_client
-        execution_engine = ExecutionEngine(
-            deepseek_client=deepseek_client,
-            workspace=workspace_path
-        )
-        logger.info("✅ ExecutionEngine initialized")
-        logger.info("   Workspace: %s", workspace_path.absolute())
-    except Exception as e:
-        logger.error("❌ Failed to initialize ExecutionEngine: %s", e, exc_info=True)
-        print("\nERROR: Could not initialize ExecutionEngine: %s\n" % e)
-        sys.exit(1)
+    logger.info("⚙️ ExecutionEngine will be created per-project")
 
     # STEP 6: INITIALIZE ORCHESTRATOR
 
     logger.info("🎼 Initializing Orchestrator...")
 
     try:
-        # ✅ FIX: Pass execution_engine to orchestrator (not None)
+        # ✅ CORRECT: Pass None for execution_engine (created per-project in orchestrator)
         orchestrator = get_orchestrator(
             workspace_dir=workspace_path,
             deepseek_client=deepseek_client,
-            execution_engine=execution_engine,  # ✅ FIXED: Pass actual engine
+            execution_engine=None,  # ✅ Created per-project with project_dir
             agent_coordinator=agent_coordinator,
         )
         logger.info("✅ Orchestrator initialized")
-        logger.info("   ExecutionEngine: wired")
+        logger.info("   DeepSeek client: wired")
         logger.info("   AgentCoordinator: wired")
+        logger.info("   ExecutionEngine: per-project")
     except Exception as e:
         logger.error("❌ Failed to initialize Orchestrator: %s", e)
         print("\nERROR: Could not initialize Orchestrator: %s\n" % e)
@@ -153,7 +141,7 @@ try:
     logger.info("=" * 70)
     logger.info("")
 
-    # ✅ FIX: Pass orchestrator to UI (UI will use the pre-wired orchestrator)
+    # ✅ Pass orchestrator to UI
     app = RalphUI(orchestrator=orchestrator)
     app.mainloop()
 
