@@ -2,17 +2,15 @@
 """
 prd_generator.py - PRD Generator from Technical Brief (PR-001)
 
-✅ ENHANCED: ML Competition Support
-  - Detects ML/time-series tasks
-  - Generates 10 atomic items for competition workflow
-  - Data download → Model training → ONNX export → Submission
+Supports KPI-aware ML competitions and standard API/LLM/Web projects.
 
-Takes clarified task + brief, generates 5-10 actionable PRD items.
-Each item is one agent iteration (fits in context window).
+Enhancements in this revision:
+- Accepts optional project_metadata from orchestrator
+- For ML competitions, injects metric/KPI hints into the decomposed stories
 """
 
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, asdict
 import json
 import re
@@ -48,31 +46,34 @@ class PRDGenerator:
     def __init__(self):
         self.stories: List[UserStory] = []
 
-    def generate(self,
-                 technical_brief: Dict[str, Any],
-                 domain: str = "llm-app") -> Dict[str, Any]:
-        """
-        Generate PRD from clarified task.
+    def generate(
+        self,
+        technical_brief: Dict[str, Any],
+        domain: str = "llm-app",
+        project_metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Generate PRD from clarified task.
 
         Args:
             technical_brief: Output from TaskClarifier
             domain: Project domain
-
-        Returns:
-            PRD dict with user_stories list
+            project_metadata: Extra context from orchestrator (competition url, eval metric, etc.)
         """
 
         clarified_task = technical_brief.get("clarified_task", "")
         key_reqs = technical_brief.get("key_requirements", [])
+        project_meta = project_metadata or technical_brief.get("project_metadata") or {}
 
         logger.info("📝 PRD Generator Starting...")
         logger.info(f"   Task: {clarified_task[:80]}...")
         logger.info(f"   Domain: {domain}")
+        if project_meta:
+            logger.info(f"   Project meta keys: {list(project_meta.keys())}")
 
-        # ✅ Enhanced domain detection
+        # Enhanced domain detection
         domain_lower = domain.lower()
         task_lower = clarified_task.lower()
-        
+
         # ML Competition detection
         is_ml_competition = any([
             "time_series" in domain_lower,
@@ -84,12 +85,17 @@ class PRDGenerator:
             "competition" in task_lower and ("train" in task_lower or "model" in task_lower),
             "onnx" in task_lower,
             "pearson correlation" in task_lower,
+            project_meta.get("project_type") == "ml_competition",
         ])
 
         # Decompose based on domain
         if is_ml_competition:
             logger.info("   Detected: ML Competition")
-            stories = self._decompose_ml_competition(clarified_task, key_reqs)
+            stories = self._decompose_ml_competition(
+                task=clarified_task,
+                reqs=key_reqs,
+                project_meta=project_meta,
+            )
         elif "api" in domain_lower or "backend" in domain_lower:
             logger.info("   Detected: API/Backend")
             stories = self._decompose_api(clarified_task, key_reqs)
@@ -109,14 +115,26 @@ class PRDGenerator:
             "task": clarified_task,
             "domain": domain,
             "total_items": len(stories),
-            "user_stories": [s.to_dict() for s in stories]
+            "user_stories": [s.to_dict() for s in stories],
+            "project_metadata": project_meta,
         }
 
         return prd
 
-    def _decompose_ml_competition(self, task: str, reqs: List[str]) -> List[UserStory]:
-        """ML Competition decomposition (10 atomic items)"""
-        return [
+    def _decompose_ml_competition(
+        self,
+        task: str,
+        reqs: List[str],
+        project_meta: Optional[Dict[str, Any]] = None,
+    ) -> List[UserStory]:
+        """ML Competition decomposition (10 atomic items).
+
+        Injects metric name into evaluation stories if available.
+        """
+        project_meta = project_meta or {}
+        metric_name = project_meta.get("eval_metric", "Weighted Pearson Correlation")
+
+        stories = [
             UserStory(
                 id="ML-001",
                 title="Environment setup and dependencies",
@@ -126,11 +144,11 @@ class PRDGenerator:
                     "requirements.txt with pinned versions: torch>=2.0, onnxruntime, pandas, pyarrow, numpy, tqdm",
                     "All packages install without errors",
                     "Python version verified: 3.11.x",
-                    ".gitignore includes venv/, __pycache__/, *.pyc"
+                    ".gitignore includes venv/, __pycache__/, *.pyc",
                 ],
                 verification="python --version && pip list | grep -E '(torch|onnx|pandas)' && python -c 'import torch; print(torch.__version__)'",
                 why="Match competition Docker environment (python:3.11-slim-bookworm). Ensure reproducibility.",
-                files_touched=["requirements.txt", ".gitignore", "README.md"]
+                files_touched=["requirements.txt", ".gitignore", "README.md"],
             ),
             UserStory(
                 id="ML-002",
@@ -142,11 +160,11 @@ class PRDGenerator:
                     "train.parquet shape verified: 10,721 sequences",
                     "valid.parquet shape verified: 1,444 sequences",
                     "Each sequence has 1000 timesteps confirmed",
-                    "Script: scripts/download_data.py for reproducibility"
+                    "Script: scripts/download_data.py for reproducibility",
                 ],
                 verification="ls data/raw/datasets/ && python -c \"import pandas as pd; df = pd.read_parquet('data/raw/datasets/train.parquet'); print(f'Train: {df.shape}'); assert len(df) == 10721\"",
                 why="Need training/validation data to start model development. Verify data integrity before training.",
-                files_touched=["scripts/download_data.py", "data/raw/datasets/train.parquet", "data/raw/datasets/valid.parquet", "data/raw/utils.py"]
+                files_touched=["scripts/download_data.py", "data/raw/datasets/train.parquet", "data/raw/datasets/valid.parquet", "data/raw/utils.py"],
             ),
             UserStory(
                 id="ML-003",
@@ -159,27 +177,27 @@ class PRDGenerator:
                     "Supports both train and validation datasets",
                     "Optional data augmentation (noise, scaling) implemented",
                     "Unit tests pass: tests/test_data_loader.py",
-                    "Docstrings with type hints on all methods"
+                    "Docstrings with type hints on all methods",
                 ],
                 verification="python -c \"from src.data_loader import TimeSeriesDataset; ds = TimeSeriesDataset('data/raw/datasets/train.parquet'); print(f'Dataset size: {len(ds)}'); ctx, tgt = ds[0]; print(f'Context: {ctx.shape}, Target: {tgt.shape}'); assert ctx.shape[0] == 99\" && pytest tests/test_data_loader.py -v",
                 why="Efficient batching and data loading for training. Correct context/target split is critical for model performance.",
-                files_touched=["src/data_loader.py", "tests/test_data_loader.py"]
+                files_touched=["src/data_loader.py", "tests/test_data_loader.py"],
             ),
             UserStory(
                 id="ML-004",
                 title="Baseline model evaluation",
-                description="Load baseline.onnx with ONNX Runtime, run inference on validation set, record Pearson Correlation score.",
+                description="Load baseline.onnx with ONNX Runtime, run inference on validation set, record baseline metric.",
                 acceptance_criteria=[
                     "src/evaluate_baseline.py loads baseline.onnx successfully",
                     "Runs inference on all 1,444 validation sequences",
-                    "Calculates Pearson Correlation using utils.py scoring function",
+                    f"Calculates {metric_name} using utils.py scoring function",
                     "Logs baseline score to models/baseline_score.txt",
                     "Measures and logs inference time (<10s requirement check)",
-                    "Script outputs: 'Baseline Pearson Correlation: 0.XXXX, Time: Xs'"
+                    f"Script outputs: 'Baseline {metric_name}: 0.XXXX, Time: Xs'",
                 ],
                 verification="python src/evaluate_baseline.py && cat models/baseline_score.txt",
                 why="Establish performance target to beat. Baseline provides reference for model improvements.",
-                files_touched=["src/evaluate_baseline.py", "models/baseline_score.txt"]
+                files_touched=["src/evaluate_baseline.py", "models/baseline_score.txt"],
             ),
             UserStory(
                 id="ML-005",
@@ -192,11 +210,11 @@ class PRDGenerator:
                     "Model parameters: 500K-2M (balance capacity vs speed)",
                     "Supports gradient checkpointing for memory efficiency",
                     "Unit tests verify forward pass: tests/test_model.py",
-                    "Docstrings explain architecture choices"
+                    "Docstrings explain architecture choices",
                 ],
                 verification="python -c \"from src.model import PredictionModel; m = PredictionModel(); params = sum(p.numel() for p in m.parameters()); print(f'Parameters: {params:,}'); assert 500_000 <= params <= 2_000_000\" && pytest tests/test_model.py -v",
                 why="Need improved architecture to beat baseline GRU. Attention/skip connections capture long-range dependencies in time-series.",
-                files_touched=["src/model.py", "tests/test_model.py"]
+                files_touched=["src/model.py", "tests/test_model.py"],
             ),
             UserStory(
                 id="ML-006",
@@ -212,29 +230,29 @@ class PRDGenerator:
                     "Logs train/val loss every epoch to CSV or TensorBoard",
                     "GPU/CPU auto-detection and utilization",
                     "Reproducibility: sets torch/numpy/random seeds",
-                    "Progress bar with tqdm"
+                    "Progress bar with tqdm",
                 ],
                 verification="python src/train.py --epochs 5 --batch_size 32 --seed 42 && ls models/checkpoints/best_model.pt",
                 why="Train model on 10,721 sequences efficiently. Checkpointing prevents loss of progress. Early stopping avoids overfitting.",
-                files_touched=["src/train.py", "src/trainer.py", "config/train_config.yaml", "tests/test_training.py"]
+                files_touched=["src/train.py", "src/trainer.py", "config/train_config.yaml", "tests/test_training.py"],
             ),
             UserStory(
                 id="ML-007",
                 title="Model evaluation with metrics",
-                description="Evaluate trained model on validation set, calculate Pearson Correlation (primary metric) plus RMSE, MAE, R².",
+                description="Evaluate trained model on validation set, calculate primary KPI plus auxiliary metrics.",
                 acceptance_criteria=[
                     "src/evaluate.py loads trained PyTorch model from checkpoint",
                     "Runs inference on validation set (1,444 sequences)",
-                    "Calculates Pearson Correlation using competition's utils.py",
+                    f"Calculates {metric_name} using competition's utils.py",
                     "Also computes: RMSE, MAE, R² for analysis",
                     "Saves predictions to CSV: output/predictions.csv",
                     "Generates plots: predicted vs actual, residuals distribution",
-                    "Outputs: 'Validation Pearson: 0.XXXX (Baseline: 0.YYYY, Beat: True/False)'",
-                    "Evaluation results saved to models/evaluation_report.json"
+                    f"Outputs: 'Validation {metric_name}: 0.XXXX (Baseline: 0.YYYY, Beat: True/False)'",
+                    "Evaluation results saved to models/evaluation_report.json",
                 ],
                 verification="python src/evaluate.py --model models/checkpoints/best_model.pt && cat models/evaluation_report.json",
-                why="Competition metric is Pearson Correlation. Need to verify model beats baseline before ONNX export.",
-                files_touched=["src/evaluate.py", "notebooks/evaluation_analysis.ipynb", "models/evaluation_report.json"]
+                why="Competition metric is the primary KPI. Need to verify model beats baseline before ONNX export.",
+                files_touched=["src/evaluate.py", "notebooks/evaluation_analysis.ipynb", "models/evaluation_report.json"],
             ),
             UserStory(
                 id="ML-008",
@@ -247,11 +265,11 @@ class PRDGenerator:
                     "Inference speed on validation set: <10 seconds",
                     "Output accuracy: PyTorch vs ONNX difference <1e-5 (tolerance)",
                     "Optional: model quantization for speed (fp16 or int8)",
-                    "Script outputs: 'ONNX export successful. Inference: Xs, Accuracy: ✓'"
+                    "Script outputs: 'ONNX export successful. Inference: Xs, Accuracy: ✓'",
                 ],
                 verification="python src/export_onnx.py --checkpoint models/checkpoints/best_model.pt --output models/final/model.onnx && python src/test_onnx.py --model models/final/model.onnx",
                 why="Competition requires ONNX format for fast inference. Must meet <10s time constraint.",
-                files_touched=["src/export_onnx.py", "src/test_onnx.py", "models/final/model.onnx"]
+                files_touched=["src/export_onnx.py", "src/test_onnx.py", "models/final/model.onnx"],
             ),
             UserStory(
                 id="ML-009",
@@ -265,11 +283,11 @@ class PRDGenerator:
                     "scripts/make_submission.py creates submission.zip",
                     "submission.zip contains: solution.py, model.onnx (any other model artifacts)",
                     "Local test: python solution.py runs without errors",
-                    "README updated with submission instructions"
+                    "README updated with submission instructions",
                 ],
                 verification="python scripts/make_submission.py && unzip -l submission.zip && python solution.py",
                 why="Competition submission format required. Must match interface spec exactly or submission fails.",
-                files_touched=["solution.py", "scripts/make_submission.py", "submission.zip"]
+                files_touched=["solution.py", "scripts/make_submission.py", "submission.zip"],
             ),
             UserStory(
                 id="ML-010",
@@ -283,13 +301,15 @@ class PRDGenerator:
                     "Code passes: black --check src/ && flake8 src/ --max-line-length=120",
                     "Tests pass: pytest tests/ -v --cov=src --cov-report=term-missing",
                     "Test coverage >80% on data_loader, model, training modules",
-                    "Git repo clean: no uncommitted changes"
+                    "Git repo clean: no uncommitted changes",
                 ],
                 verification="black --check src/ && flake8 src/ --max-line-length=120 && pytest tests/ -v --cov=src --cov-report=term && git status",
                 why="Ensure reproducibility. Code quality for collaboration. Documentation for future reference.",
-                files_touched=["README.md", "config/train_config.yaml", "notebooks/exploratory_analysis.ipynb", "src/*", "tests/*"]
+                files_touched=["README.md", "config/train_config.yaml", "notebooks/exploratory_analysis.ipynb", "src/*", "tests/*"],
             ),
         ]
+
+        return stories
 
     def _decompose_api(self, task: str, reqs: List[str]) -> List[UserStory]:
         """REST API decomposition"""
@@ -302,11 +322,11 @@ class PRDGenerator:
                     "All entities modeled with type hints",
                     "Database migrations working",
                     "Unit tests for models (80%+ coverage)",
-                    "Docstrings on all classes/methods"
+                    "Docstrings on all classes/methods",
                 ],
                 verification="pytest tests/test_models.py -v && python -m pytest --cov=src/models",
                 why="Foundation for all endpoints. Data integrity.",
-                files_touched=["src/models.py", "src/database.py", "tests/test_models.py"]
+                files_touched=["src/models.py", "src/database.py", "tests/test_models.py"],
             ),
             UserStory(
                 id="PS-002",
@@ -317,11 +337,11 @@ class PRDGenerator:
                     "HTTP status codes correct (200, 201, 400, 404)",
                     "Input validation on POST/PUT",
                     "Error handling with proper messages",
-                    "Tests for all endpoints"
+                    "Tests for all endpoints",
                 ],
                 verification="pytest tests/test_api.py -v",
                 why="Main API functionality users interact with.",
-                files_touched=["src/api/routes.py", "tests/test_api.py"]
+                files_touched=["src/api/routes.py", "tests/test_api.py"],
             ),
             UserStory(
                 id="PS-003",
@@ -332,11 +352,11 @@ class PRDGenerator:
                     "Passwords hashed (bcrypt)",
                     "CORS configured for frontend",
                     "Rate limiting on auth endpoints",
-                    "Security tests passing"
+                    "Security tests passing",
                 ],
                 verification="pytest tests/test_auth.py -v",
                 why="Protect API from unauthorized access.",
-                files_touched=["src/auth.py", "src/middleware.py", "tests/test_auth.py"]
+                files_touched=["src/auth.py", "src/middleware.py", "tests/test_auth.py"],
             ),
             UserStory(
                 id="PS-004",
@@ -347,11 +367,11 @@ class PRDGenerator:
                     "Dockerfile builds successfully",
                     "docker-compose.yml includes postgres",
                     "README with setup instructions",
-                    "Health check endpoint working"
+                    "Health check endpoint working",
                 ],
                 verification="python -m pytest && docker build . && curl http://localhost:8000/health",
                 why="Deploy to production, user documentation.",
-                files_touched=["Dockerfile", "docker-compose.yml", "README.md", "src/main.py"]
+                files_touched=["Dockerfile", "docker-compose.yml", "README.md", "src/main.py"],
             ),
         ]
 
@@ -367,11 +387,11 @@ class PRDGenerator:
                     "API key loaded from environment",
                     "Model can be changed via config",
                     "Health check works (can call API)",
-                    "Tests passing"
+                    "Tests passing",
                 ],
                 verification="pytest tests/test_llm_client.py -v",
                 why="Foundation for all LLM calls.",
-                files_touched=["src/llm_client.py", "src/config.py", "tests/test_llm_client.py"]
+                files_touched=["src/llm_client.py", "src/config.py", "tests/test_llm_client.py"],
             ),
             UserStory(
                 id="LPS-002",
@@ -382,11 +402,11 @@ class PRDGenerator:
                     "Variable injection working",
                     "Multiple prompts can coexist",
                     "Tests for template rendering",
-                    "Documentation of all prompts"
+                    "Documentation of all prompts",
                 ],
                 verification="pytest tests/test_prompts.py -v",
                 why="Manage complex prompts cleanly.",
-                files_touched=["src/prompts.py", "templates/", "tests/test_prompts.py"]
+                files_touched=["src/prompts.py", "templates/", "tests/test_prompts.py"],
             ),
             UserStory(
                 id="LPS-003",
@@ -397,11 +417,11 @@ class PRDGenerator:
                     "Graceful handling of malformed responses",
                     "Type validation on parsed data",
                     "Tests for edge cases",
-                    "Logging of parse errors"
+                    "Logging of parse errors",
                 ],
                 verification="pytest tests/test_parser.py -v",
                 why="Reliable data extraction from LLM.",
-                files_touched=["src/parser.py", "tests/test_parser.py"]
+                files_touched=["src/parser.py", "tests/test_parser.py"],
             ),
             UserStory(
                 id="LPS-004",
@@ -412,11 +432,11 @@ class PRDGenerator:
                     "Context window management",
                     "User sessions isolated",
                     "Tests for conversation flow",
-                    "Memory usage reasonable"
+                    "Memory usage reasonable",
                 ],
                 verification="pytest tests/test_chat.py -v",
                 why="Enable multi-turn conversations.",
-                files_touched=["src/chat.py", "src/storage.py", "tests/test_chat.py"]
+                files_touched=["src/chat.py", "src/storage.py", "tests/test_chat.py"],
             ),
         ]
 
@@ -432,11 +452,11 @@ class PRDGenerator:
                     "Routing works (at least 3 pages)",
                     "Layout responsive",
                     "Tests for routing",
-                    "Build succeeds"
+                    "Build succeeds",
                 ],
                 verification="npm run build && npm run test",
                 why="UI foundation.",
-                files_touched=["frontend/src/App.tsx", "frontend/src/routes/", "frontend/src/__tests__/"]
+                files_touched=["frontend/src/App.tsx", "frontend/src/routes/", "frontend/src/__tests__/"],
             ),
             UserStory(
                 id="WPS-002",
@@ -447,11 +467,11 @@ class PRDGenerator:
                     "Error handling on failed requests",
                     "Loading states implemented",
                     "Tests for API integration",
-                    "CORS working"
+                    "CORS working",
                 ],
                 verification="npm run test && pytest tests/test_api.py",
                 why="Frontend talks to backend.",
-                files_touched=["frontend/src/api/", "tests/"]
+                files_touched=["frontend/src/api/", "tests/"],
             ),
             UserStory(
                 id="WPS-003",
@@ -462,11 +482,11 @@ class PRDGenerator:
                     "Auth state persists",
                     "Logging in/out works",
                     "Tests for state",
-                    "No prop drilling"
+                    "No prop drilling",
                 ],
                 verification="npm run test -- --coverage",
                 why="Manage app state cleanly.",
-                files_touched=["frontend/src/store/", "frontend/src/__tests__/"]
+                files_touched=["frontend/src/store/", "frontend/src/__tests__/"],
             ),
         ]
 
@@ -483,17 +503,20 @@ class PRDGenerator:
                     "Tests written",
                     "Code reviewed",
                     "Docstrings added",
-                    "Ready for production"
+                    "Ready for production",
                 ],
                 verification="pytest tests/ -v && black --check . && mypy .",
                 why="Deliver the main feature.",
-                files_touched=["src/main.py", "tests/"]
+                files_touched=["src/main.py", "tests/"],
             ),
         ]
 
 
-def generate_prd(technical_brief: Dict[str, Any],
-                 domain: str = "llm-app") -> Dict[str, Any]:
+def generate_prd(
+    technical_brief: Dict[str, Any],
+    domain: str = "llm-app",
+    project_metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """Convenience function to generate PRD"""
     gen = PRDGenerator()
-    return gen.generate(technical_brief, domain)
+    return gen.generate(technical_brief, domain, project_metadata)

@@ -1,26 +1,14 @@
 # -*- coding: utf-8 -*-
 
 """
-orchestrator.py - RALPH Main Orchestrator Engine (ML COMPETITION ENHANCED)
+orchestrator.py - RALPH Main Orchestrator Engine (ML COMPETITION ENHANCED + KPI CONFIG)
 
-✅ NEW: ML Competition Support
-  - ProjectType enum (api_dev, ml_competition, data_pipeline, llm_app)
-  - MLConfig dataclass (dataset, model, training params)
-  - Support for time-series forecasting (Wundernn.io)
-  - PyTorch/TensorFlow framework options
+Adds metric-aware project creation and passes richer context into PRD generation.
 
-✅ FIXED: Workspace path resolution
-  - Convert relative paths to absolute paths for consistency
-  - Ensures projects are found after creation
-
-Connects UI (setup_window.py) with agents (deepseek_client, agent_coordinator)
-
-Handles:
-- Project creation & management (API + ML)
-- Workspace initialization
-- Agent coordination
-- Multi-agent execution (PR-002: Parallel Orchestrator)
-- Code validation (PR-003: Code Validator)
+Changes in this revision:
+- When creating ML competition projects, auto-generate metrics_config.json under the project folder
+- metrics_config.json schema: {"name", "pattern", "target"}
+- refine_task now passes project metadata (including competition URL, eval metric) to PRDGenerator
 """
 
 from dataclasses import dataclass, asdict, field
@@ -173,7 +161,7 @@ class ProjectConfig:
     # ML fields (used when project_type == "ml_competition")
     ml_config: Optional[MLConfig] = None
 
-    # ✅ FIX: Add metadata field for flexible custom data storage
+    # Flexible project metadata (competition URL, metric, presets, etc.)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     timestamp: str = ""
@@ -290,7 +278,7 @@ class WorkspaceManager:
             self.workspace = workspace_dir.resolve()
         else:
             self.workspace = (Path.home() / ".ralph").resolve()
-            
+
         self.workspace.mkdir(parents=True, exist_ok=True)
         self.current_config: Optional[ProjectConfig] = None
         self.current_project_dir: Optional[Path] = None
@@ -356,7 +344,7 @@ class WorkspaceManager:
 
     @staticmethod
     def create_config_files(project_dir: Path, config: ProjectConfig) -> None:
-        """Create initial config files (supports ML projects)"""
+        """Create initial config files (supports ML projects + KPI config)"""
         # Save config.json
         config_file = project_dir / "config.json"
         with open(config_file, 'w', encoding='utf-8') as f:
@@ -373,7 +361,59 @@ class WorkspaceManager:
         # Create requirements.txt
         WorkspaceManager._create_requirements(project_dir, config)
 
+        # NEW: Auto-generate per-project metrics_config.json for ML competitions
+        if config.project_type == ProjectType.ML_COMPETITION or config.metadata.get("project_type") == "ml_competition":
+            WorkspaceManager._create_default_metrics_config(project_dir, config)
+
         logger.info(f"📝 Created config files")
+
+    @staticmethod
+    def _create_default_metrics_config(project_dir: Path, config: ProjectConfig) -> None:
+        """Create a default metrics_config.json for ML competition projects.
+
+        Uses project metadata or ml_config.eval_metric to define the primary KPI.
+        """
+        meta = config.metadata or {}
+        metric_name = meta.get('eval_metric')
+        if not metric_name and config.ml_config:
+            metric_name = config.ml_config.eval_metric
+        if not metric_name:
+            metric_name = "score"
+
+        # Basic patterns for common metrics; refined later per-project if needed
+        patterns = {
+            "R²": r"R2(?: Score)?: (?P<value>[-+]?\d*\.\d+)",
+            "RMSE": r"RMSE: (?P<value>[-+]?\d*\.\d+)",
+            "MAE": r"MAE: (?P<value>[-+]?\d*\.\d+)",
+            "Accuracy": r"Accuracy: (?P<value>[-+]?\d*\.\d+)",
+            "F1 Score": r"F1(?: Score)?: (?P<value>[-+]?\d*\.\d+)",
+            "AUC-ROC": r"AUC-ROC: (?P<value>[-+]?\d*\.\d+)",
+            "weighted_pearson": r"Weighted Pearson(?: Correlation Coefficient)?: (?P<value>[-+]?\d*\.\d+)",
+            "score": r"Score: (?P<value>[-+]?\d*\.\d+)",
+        }
+
+        # Map some friendly names to internal keys
+        name_key = metric_name
+        if metric_name.lower().startswith("weighted") and "pearson" in metric_name.lower():
+            name_key = "weighted_pearson"
+
+        pattern = patterns.get(name_key, patterns["score"])
+
+        # Conservative default target; user can edit per project
+        default_target = float(meta.get('metric_target', 0.0))
+
+        cfg = {
+            "name": name_key,
+            "pattern": pattern,
+            "target": default_target,
+        }
+
+        metrics_file = project_dir / "metrics_config.json"
+        if not metrics_file.exists():
+            metrics_file.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+            logger.info("📊 Created default metrics_config.json: %s", metrics_file)
+        else:
+            logger.info("📊 metrics_config.json already exists, not overwriting: %s", metrics_file)
 
     @staticmethod
     def _create_ml_readme(config: ProjectConfig) -> str:
@@ -381,7 +421,7 @@ class WorkspaceManager:
         # Check both ml_config and metadata for ML info
         ml = config.ml_config
         meta = config.metadata
-        
+
         comp_source = ml.competition_source if ml else meta.get('competition_url', 'N/A')
         comp_url = ml.competition_url if ml else meta.get('competition_url', 'N/A')
         problem_type = ml.problem_type if ml else meta.get('problem_type', 'N/A')
@@ -391,7 +431,7 @@ class WorkspaceManager:
         epochs = ml.epochs if ml else meta.get('epochs', 100)
         learning_rate = ml.learning_rate if ml else meta.get('learning_rate', 0.001)
         eval_metric = ml.eval_metric if ml else meta.get('eval_metric', 'R²')
-        
+
         return f"""# {config.name}
 
 ## ML Competition Project
@@ -525,7 +565,7 @@ Generated by RALPH - Multi-Agent Development System
             ml = config.ml_config
             meta = config.metadata
             ml_framework = ml.ml_framework if ml else meta.get('ml_framework', 'PyTorch')
-            
+
             ml_deps = [
                 "numpy>=1.21.0",
                 "pandas>=1.3.0",
@@ -607,7 +647,7 @@ class RalphOrchestrator:
             self.workspace = workspace_dir.resolve()
         else:
             self.workspace = (Path.home() / ".ralph").resolve()
-            
+
         self.workspace.mkdir(parents=True, exist_ok=True)
         self.workspace_manager = WorkspaceManager(self.workspace)
         self.current_config: Optional[ProjectConfig] = None
@@ -641,7 +681,7 @@ class RalphOrchestrator:
 
             self.current_project_dir = project_dir
 
-            # Create config files
+            # Create config + README + requirements + metrics_config (for ML)
             WorkspaceManager.create_config_files(project_dir, config)
 
             # Log event
@@ -675,7 +715,7 @@ class RalphOrchestrator:
             project_id: str,
             raw_task: str
     ) -> Dict[str, Any]:
-        """Task clarification + PRD generation (PR-001)"""
+        """Task clarification + PRD generation (PR-001, now project-aware)"""
         try:
             from task_clarifier import TaskClarifier
             from prd_generator import PRDGenerator
@@ -688,24 +728,35 @@ class RalphOrchestrator:
             self._log(f"   Input: {raw_task[:100]}...")
 
             clarifier = TaskClarifier(self.deepseek_client)
+
+            # Pass project context into the clarifier so Deepseek can reason about competition/API specifics
             brief = asyncio.run(
                 clarifier.clarify(
                     raw_task=raw_task,
                     domain=config.domain,
                     framework=config.framework,
-                    database=config.database
+                    database=config.database,
+                    metadata=config.metadata,
                 )
             )
 
             if brief.get("status") != "success":
                 return brief
 
+            # Attach project metadata and id into the brief for downstream PRD generation
+            brief["project_id"] = project_id
+            brief["project_metadata"] = config.metadata
+
             self._log("✅ Task clarified")
             self._log(f"   {brief['clarified_task'][:100]}...")
 
             self._log("📝 PRD Generation Phase")
             gen = PRDGenerator()
-            prd = gen.generate(brief, domain=config.domain)
+            prd = gen.generate(
+                technical_brief=brief,
+                domain=config.domain,
+                project_metadata=config.metadata,
+            )
             self._log(f"✅ PRD generated: {prd['total_items']} items")
 
             prd_file = self.current_project_dir / "prd.json"
@@ -739,11 +790,11 @@ class RalphOrchestrator:
         logger.info(f"🔍 [DEBUG] num_agents: {num_agents}")
         logger.info(f"🔍 [DEBUG] log_callback type: {type(log_callback)}")
         logger.info(f"🔍 [DEBUG] progress_callback type: {type(progress_callback)}")
-        
+
         try:
             execution_id = f"exec_{self._generate_project_id('')}"
             logger.info(f"🔍 [DEBUG] Generated execution_id: {execution_id}")
-            
+
             exec_state = ExecutionState(
                 execution_id=execution_id,
                 project_id=self.current_config.name if self.current_config else "unknown",
@@ -762,7 +813,7 @@ class RalphOrchestrator:
             partitioned = self._partition_prd_items(prd, num_agents)
             total_user_stories = len(prd.get('user_stories', []))
             logger.info(f"🔍 [DEBUG] Partitioned {total_user_stories} stories")
-            
+
             exec_state.add_log(f"📊 Partitioned {total_user_stories} user stories across {num_agents} agents")
 
             if log_callback:
@@ -793,7 +844,7 @@ class RalphOrchestrator:
                     agent_coordinator=self.agent_coordinator,
                 )
                 logger.info("✅ ExecutionEngine created for project: %s", self.current_project_dir)
-            
+
             logger.info(f"🔍 [DEBUG] ExecutionEngine exists: {type(self.execution_engine)}")
 
             exec_state.add_log("⚙️ Spawning parallel agents...")
@@ -802,7 +853,7 @@ class RalphOrchestrator:
 
             # ✅ FIX: Make callbacks async-compatible
             logger.info("🔍 [DEBUG] Creating async callback wrappers...")
-            
+
             async def async_progress_callback(p):
                 logger.info(f"🔍 [DEBUG] async_progress_callback called with {p}")
                 await self._handle_progress(exec_state, p, progress_callback)
@@ -810,7 +861,7 @@ class RalphOrchestrator:
             async def async_log_callback(msg):
                 logger.info(f"🔍 [DEBUG] async_log_callback called: {msg[:50]}...")
                 await self._handle_log(exec_state, msg, log_callback)
-            
+
             logger.info("🔍 [DEBUG] Async callbacks created")
             logger.info("🔍 [DEBUG] ========================================")
             logger.info("🔍 [DEBUG] CALLING execution_engine.execute()...")
@@ -820,7 +871,7 @@ class RalphOrchestrator:
             logger.info(f"🔍 [DEBUG]   num_agents: {num_agents}")
             logger.info(f"🔍 [DEBUG]   partitions: {len(partitioned)} agents")
             logger.info(f"🔍 [DEBUG]   prompt length: {len(orchestrator_prompt)}")
-            
+
             execution_results = await self.execution_engine.execute(
                 execution_id=execution_id,
                 orchestrator_prompt=orchestrator_prompt,
@@ -829,7 +880,7 @@ class RalphOrchestrator:
                 progress_callback=async_progress_callback,
                 log_callback=async_log_callback,
             )
-            
+
             logger.info("🔍 [DEBUG] ========================================")
             logger.info("🔍 [DEBUG] execution_engine.execute() RETURNED")
             logger.info("🔍 [DEBUG] ========================================")
@@ -934,6 +985,7 @@ PROJECT INFO:
 - Problem: {meta.get('problem_type', 'N/A')}
 - Framework: {meta.get('ml_framework', 'PyTorch')}
 - Model: {meta.get('model_type', 'LSTM')}
+- Primary KPI: {meta.get('eval_metric', 'score')} (threshold in metrics_config.json)
 
 YOUR TASK:
 Implement the assigned PRD items. For each item:
@@ -942,6 +994,7 @@ Implement the assigned PRD items. For each item:
 3. Include docstrings and type hints
 4. Follow ML engineering best practices
 5. Ensure code is reproducible and tested
+6. Ensure evaluation scripts print the KPI exactly once using the pattern from metrics_config.json
 
 PRD CONTEXT:
 {prd_summary}
@@ -950,7 +1003,7 @@ DELIVERABLES:
 - Data loading and preprocessing modules
 - Model architecture definition
 - Training pipeline
-- Evaluation metrics
+- Evaluation metrics (with KPI logging)
 - Prediction and submission generation
 - Unit tests for data processing
 - Documentation strings
@@ -1090,19 +1143,19 @@ Start implementation now. Generate complete, working code."""
             # List all items in projects directory
             all_items = list(projects_dir.iterdir())
             logger.info(f"   Found {len(all_items)} items in projects directory")
-            
+
             for project_dir in sorted(all_items):
                 logger.info(f"   Checking: {project_dir.name} (is_dir: {project_dir.is_dir()})")
-                
+
                 if project_dir.is_dir():
                     config_file = project_dir / "config.json"
                     logger.info(f"      Looking for config: {config_file.exists()}")
-                    
+
                     if config_file.exists():
                         try:
                             with open(config_file, 'r', encoding='utf-8') as f:
                                 config_data = json.load(f)
-                                
+
                             project_info = {
                                 "project_id": project_dir.name,
                                 "name": config_data.get("name", "Unknown"),
@@ -1117,7 +1170,7 @@ Start implementation now. Generate complete, working code."""
                             }
                             projects.append(project_info)
                             logger.info(f"      ✅ Added project: {project_info['name']}")
-                            
+
                         except json.JSONDecodeError as e:
                             logger.warning(f"      ⚠️ Invalid config.json in {project_dir.name}: {e}")
                         except Exception as e:
@@ -1304,6 +1357,15 @@ if __name__ == "__main__":
         domain="time_series_forecasting",
         project_type="ml_competition",
         ml_config=ml_config,
+        metadata={
+            "project_type": "ml_competition",
+            "competition_url": "https://wundernn.io",
+            "problem_type": "time_series_forecasting",
+            "ml_framework": "PyTorch",
+            "model_type": "LSTM",
+            "eval_metric": "weighted_pearson",
+            "metric_target": 0.35,
+        },
     )
 
     result = orchestrator.create_project(config)
