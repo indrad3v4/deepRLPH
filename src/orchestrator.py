@@ -6,9 +6,10 @@ orchestrator.py - RALPH Main Orchestrator Engine (ML COMPETITION ENHANCED + KPI 
 Adds metric-aware project creation and passes richer context into PRD generation.
 
 Changes in this revision:
-- When creating ML competition projects, auto-generate metrics_config.json under the project folder
-- metrics_config.json schema: {"name", "pattern", "target"}
-- refine_task now passes project metadata (including competition URL, eval metric) to PRDGenerator
+- When creating any project, auto-generate metrics_config.json under the project folder
+- For ML competition projects, metrics_config.json is derived from eval_metric/metadata
+- For non-ML projects, metrics_config.json defaults to a tests-based KPI (tests_passed_ratio)
+- refine_task passes project metadata (including competition URL, eval metric) to PRDGenerator
 """
 
 from dataclasses import dataclass, asdict, field
@@ -361,46 +362,77 @@ class WorkspaceManager:
         # Create requirements.txt
         WorkspaceManager._create_requirements(project_dir, config)
 
-        # NEW: Auto-generate per-project metrics_config.json for ML competitions
-        if config.project_type == ProjectType.ML_COMPETITION or config.metadata.get("project_type") == "ml_competition":
-            WorkspaceManager._create_default_metrics_config(project_dir, config)
+        # NEW: Auto-generate per-project metrics_config.json for ALL projects
+        WorkspaceManager._create_default_metrics_config(project_dir, config)
 
         logger.info(f"📝 Created config files")
 
     @staticmethod
     def _create_default_metrics_config(project_dir: Path, config: ProjectConfig) -> None:
-        """Create a default metrics_config.json for ML competition projects.
+        """Create a default metrics_config.json for any project.
 
-        Uses project metadata or ml_config.eval_metric to define the primary KPI.
+        For ML competition projects, use project metadata or ml_config.eval_metric.
+        For non-ML projects, default to a tests-based KPI so the loop is result-oriented
+        even before you customize metrics per project.
         """
         meta = config.metadata or {}
-        metric_name = meta.get('eval_metric')
-        if not metric_name and config.ml_config:
-            metric_name = config.ml_config.eval_metric
-        if not metric_name:
-            metric_name = "score"
+        project_type_str = str(meta.get("project_type", config.project_type))
 
-        # Basic patterns for common metrics; refined later per-project if needed
-        patterns = {
-            "R²": r"R2(?: Score)?: (?P<value>[-+]?\d*\.\d+)",
-            "RMSE": r"RMSE: (?P<value>[-+]?\d*\.\d+)",
-            "MAE": r"MAE: (?P<value>[-+]?\d*\.\d+)",
-            "Accuracy": r"Accuracy: (?P<value>[-+]?\d*\.\d+)",
-            "F1 Score": r"F1(?: Score)?: (?P<value>[-+]?\d*\.\d+)",
-            "AUC-ROC": r"AUC-ROC: (?P<value>[-+]?\d*\.\d+)",
-            "weighted_pearson": r"Weighted Pearson(?: Correlation Coefficient)?: (?P<value>[-+]?\d*\.\d+)",
-            "score": r"Score: (?P<value>[-+]?\d*\.\d+)",
-        }
+        # ------------------------------------------------------------------
+        # ML COMPETITION PROJECTS: metric from eval_metric / metadata
+        # ------------------------------------------------------------------
+        if "ml_competition" in project_type_str:
+            metric_name = meta.get('eval_metric')
+            if not metric_name and config.ml_config:
+                metric_name = config.ml_config.eval_metric
+            if not metric_name:
+                metric_name = "score"
 
-        # Map some friendly names to internal keys
-        name_key = metric_name
-        if metric_name.lower().startswith("weighted") and "pearson" in metric_name.lower():
-            name_key = "weighted_pearson"
+            # Basic patterns for common metrics; refined later per-project if needed
+            patterns = {
+                "R²": r"R2(?: Score)?: (?P<value>[-+]?\d*\.\d+)",
+                "RMSE": r"RMSE: (?P<value>[-+]?\d*\.\d+)",
+                "MAE": r"MAE: (?P<value>[-+]?\d*\.\d+)",
+                "Accuracy": r"Accuracy: (?P<value>[-+]?\d*\.\d+)",
+                "F1 Score": r"F1(?: Score)?: (?P<value>[-+]?\d*\.\d+)",
+                "AUC-ROC": r"AUC-ROC: (?P<value>[-+]?\d*\.\d+)",
+                "weighted_pearson": r"Weighted Pearson(?: Correlation Coefficient)?: (?P<value>[-+]?\d*\.\d+)",
+                "score": r"Score: (?P<value>[-+]?\d*\.\d+)",
+            }
 
-        pattern = patterns.get(name_key, patterns["score"])
+            # Map some friendly names to internal keys
+            name_key = metric_name
+            if metric_name.lower().startswith("weighted") and "pearson" in metric_name.lower():
+                name_key = "weighted_pearson"
 
-        # Conservative default target; user can edit per project
-        default_target = float(meta.get('metric_target', 0.0))
+            pattern = patterns.get(name_key, patterns["score"])
+
+            # Conservative default target; user can edit per project
+            default_target = float(meta.get('metric_target', 0.0))
+
+        # ------------------------------------------------------------------
+        # NON-ML PROJECTS: default to tests-based KPI
+        # ------------------------------------------------------------------
+        else:
+            metric_name = meta.get('eval_metric', 'tests_passed_ratio')
+
+            patterns = {
+                # Expect your verification command to print e.g. "TESTS_OK: 1.0" when all tests pass
+                "tests_passed_ratio": r"TESTS_OK:\s*(?P<value>[-+]?\d*\.?\d+)",
+                # Or "TESTS_PASSED: 123"
+                "tests_passed": r"TESTS_PASSED:\s*(?P<value>\d+)",
+                # Or "COVERAGE: 87.5" for coverage percentage
+                "coverage": r"COVERAGE:\s*(?P<value>[-+]?\d*\.?\d+)",
+            }
+
+            name_key = metric_name if metric_name in patterns else "tests_passed_ratio"
+            pattern = patterns[name_key]
+
+            # For generic projects, default target is "all tests pass" (ratio 1.0)
+            if name_key == "coverage":
+                default_target = float(meta.get('metric_target', 80.0))
+            else:
+                default_target = float(meta.get('metric_target', 1.0))
 
         cfg = {
             "name": name_key,
@@ -681,7 +713,7 @@ class RalphOrchestrator:
 
             self.current_project_dir = project_dir
 
-            # Create config + README + requirements + metrics_config (for ML)
+            # Create config + README + requirements + metrics_config
             WorkspaceManager.create_config_files(project_dir, config)
 
             # Log event
