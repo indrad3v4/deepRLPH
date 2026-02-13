@@ -9,6 +9,7 @@ import asyncio
 import json
 import os
 import ssl
+from datetime import datetime
 from typing import Optional, Dict, Any, List
 import logging
 
@@ -82,9 +83,15 @@ class DeepseekClient:
                 "  3. Pass to __init__: DeepseekClient(api_key='sk_live_...')"
             )
 
+        # Tracing configuration (for PRD-02/03)
+        self.trace_enabled = bool(os.getenv("DEEPSEEK_TRACE", "").strip())
+        self.trace_dir = os.getenv("DEEPSEEK_TRACE_DIR", "").strip() or os.getcwd()
+
         logger.info(f"✅ Deepseek client initialized (Jan 2026)")
         logger.info(f"   Model: {self.model}")
         logger.info(f"   Base URL: {self.base_url}")
+        if self.trace_enabled:
+            logger.info(f"   🔍 DeepSeek tracing enabled → {os.path.join(self.trace_dir, 'deepseek_calls.jsonl')}")
 
     def _create_ssl_context(self):
         """Create SSL context that works on macOS with certificate issues"""
@@ -101,6 +108,25 @@ class DeepseekClient:
             ssl_context.check_hostname = False
             ssl_context.verify_mode = ssl.CERT_NONE
             return ssl_context
+
+    def _maybe_write_trace(self, trace: Dict[str, Any]) -> None:
+        """Write a single JSONL trace entry if tracing is enabled.
+
+        Truncates large fields and is best-effort only (never crashes callers).
+        """
+        if not self.trace_enabled:
+            return
+        try:
+            os.makedirs(self.trace_dir, exist_ok=True)
+            path = os.path.join(self.trace_dir, "deepseek_calls.jsonl")
+            # Light truncation safety in case callers forgot
+            for key in ("system_prompt", "user_message", "response"):
+                if key in trace and isinstance(trace[key], str) and len(trace[key]) > 4000:
+                    trace[key] = trace[key][:4000] + "... [truncated]"
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(trace, ensure_ascii=False) + "\n")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to write DeepSeek trace: {e}")
 
     async def call_agent(
             self,
@@ -151,6 +177,25 @@ class DeepseekClient:
             },
         }
 
+        # Lightweight prompt visibility in standard logs
+        logger.info(
+            "🧠 DeepSeek call: model=%s, system_len=%d, user_len=%d, thinking_budget=%d",
+            self.model,
+            len(system_prompt),
+            len(user_message),
+            thinking_budget,
+        )
+
+        # Base trace object (enriched per outcome)
+        trace: Dict[str, Any] = {
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "model": self.model,
+            "system_prompt": system_prompt,
+            "user_message": user_message,
+            "thinking_budget": thinking_budget,
+            "temperature": temperature,
+        }
+
         try:
             # Create SSL context for macOS compatibility
             ssl_context = self._create_ssl_context()
@@ -169,6 +214,12 @@ class DeepseekClient:
                     if response.status != 200:
                         error_msg = result.get("error", {}).get("message", str(result))
                         logger.error(f"❌ API Error ({response.status}): {error_msg}")
+                        trace.update({
+                            "status": "api_error",
+                            "status_code": response.status,
+                            "error": error_msg,
+                        })
+                        self._maybe_write_trace(trace)
                         return {
                             "status": "error",
                             "error": f"API Error: {error_msg}",
@@ -177,6 +228,14 @@ class DeepseekClient:
 
                     # Extract response content
                     content = result.get("choices", [{}])[0].get("message", {})
+
+                    trace.update({
+                        "status": "success",
+                        "response": content.get("content", ""),
+                        "thinking_output": content.get("thinking", ""),
+                        "usage": result.get("usage", {}),
+                    })
+                    self._maybe_write_trace(trace)
 
                     return {
                         "thinking": content.get("thinking", ""),
@@ -187,18 +246,33 @@ class DeepseekClient:
 
         except asyncio.TimeoutError:
             logger.error(f"❌ Request timeout (>{timeout}s)")
+            trace.update({
+                "status": "timeout",
+                "error": f"Request timeout after {timeout}s",
+            })
+            self._maybe_write_trace(trace)
             return {
                 "status": "timeout",
                 "error": f"Request timeout after {timeout}s",
             }
         except aiohttp.ClientError as e:
             logger.error(f"❌ Connection error: {str(e)}")
+            trace.update({
+                "status": "connection_error",
+                "error": str(e),
+            })
+            self._maybe_write_trace(trace)
             return {
                 "status": "error",
                 "error": f"Connection error: {str(e)}",
             }
         except Exception as e:
             logger.error(f"❌ Unexpected error: {str(e)}")
+            trace.update({
+                "status": "unexpected_error",
+                "error": str(e),
+            })
+            self._maybe_write_trace(trace)
             return {
                 "status": "error",
                 "error": f"Unexpected error: {str(e)}",
