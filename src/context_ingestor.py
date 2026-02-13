@@ -1,125 +1,230 @@
-"""Project context ingestion utilities (PRD-01).
+# -*- coding: utf-8 -*-
+"""context_ingestor.py - Lightweight project context ingestion (PRD-01)
 
-These helpers scan a RALPH project directory for:
-- documentation files (README, .md, .txt)
-- dataset files (under data/ and workspace/input)
-- baseline code / model files (src/, models/)
+Summarizes local project files so DeepSeek can see real docs, datasets,
+baseline code, and model artifacts without reading entire large files.
 
-They return a small, prompt-friendly summary dictionary that can be
-attached to ProjectConfig.metadata so DeepSeek can see real project
-artifacts during clarification/PRD generation.
+Scope (per project root):
+- Docs: README*.md, *.md, *.txt under root, workspace/, docs/ (≤5 files total).
+- Datasets: *.csv, *.parquet, *.json under data/ and workspace/input/.
+  For CSV we include header line as a simple "schema".
+- Baseline code: *.py and *.ipynb under src/ and models/.
+- Baseline models: common binary formats under models/ (e.g. .pt, .onnx, .bin,
+  .pkl, .safetensors).
+
+Output is a small dict that can be attached to project_metadata and also
+flattened into a text summary for prompts.
 """
 
 from __future__ import annotations
 
-from dataclasses import asdict
+import json
+import logging
+from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Dict, Any, List
 
-import json
+logger = logging.getLogger("ContextIngestor")
 
 
-# -------------------------- helpers ---------------------------------
+MAX_DOC_FILES = 5
+MAX_DOC_CHARS = 3000
+MAX_SCHEMA_LINES = 3
 
 
-def _safe_read_text(path: Path, max_chars: int = 4000) -> str:
-    """Read at most max_chars of a text file, best-effort.
+@dataclass
+class DocSnippet:
+    path: str
+    kind: str
+    excerpt: str
 
-    Binary or unreadable files return an empty string.
-    """
 
+@dataclass
+class DatasetSummary:
+    path: str
+    kind: str
+    schema: str
+
+
+@dataclass
+class CodeSummary:
+    path: str
+    kind: str
+    excerpt: str
+
+
+@dataclass
+class ModelArtifact:
+    path: str
+    kind: str
+
+
+@dataclass
+class ProjectContext:
+    docs: List[DocSnippet]
+    datasets: List[DatasetSummary]
+    code: List[CodeSummary]
+    models: List[ModelArtifact]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "docs": [asdict(d) for d in self.docs],
+            "datasets": [asdict(d) for d in self.datasets],
+            "code": [asdict(c) for c in self.code],
+            "models": [asdict(m) for m in self.models],
+        }
+
+    def to_text_summary(self) -> str:
+        """Flatten context into a compact human-readable summary."""
+        parts: List[str] = []
+
+        if self.docs:
+            parts.append("DOCUMENTATION SNIPPETS:\n" + "\n".join(
+                f"- {d.path}: {d.excerpt[:200].replace('\n', ' ')}" for d in self.docs
+            ))
+
+        if self.datasets:
+            parts.append("DATASETS:\n" + "\n".join(
+                f"- {d.path} ({d.kind}) schema: {d.schema}" for d in self.datasets
+            ))
+
+        if self.code:
+            parts.append("BASELINE CODE SNIPPETS:\n" + "\n".join(
+                f"- {c.path}: {c.excerpt[:200].replace('\n', ' ')}" for c in self.code
+            ))
+
+        if self.models:
+            parts.append("MODEL ARTIFACTS:\n" + "\n".join(
+                f"- {m.path} ({m.kind})" for m in self.models
+            ))
+
+        return "\n\n".join(parts)
+
+
+def _read_text_safely(path: Path, max_chars: int) -> str:
     try:
         text = path.read_text(encoding="utf-8", errors="ignore")
-    except Exception:
-        return ""
-    if len(text) > max_chars:
-        return text[:max_chars] + "\n... [truncated]"
-    return text
+        if len(text) > max_chars:
+            return text[:max_chars] + "... [truncated]"
+        return text
+    except Exception as e:
+        logger.warning("⚠️ Failed to read %s: %s", path, e)
+        return "[unreadable]"
 
 
-def _find_files(root: Path, patterns: List[str]) -> List[Path]:
-    """Glob-like search for multiple patterns under root (non-recursive safe variant)."""
+def _summarize_csv_schema(path: Path) -> str:
+    try:
+        with path.open("r", encoding="utf-8", errors="ignore") as f:
+            lines = []
+            for _ in range(MAX_SCHEMA_LINES):
+                line = f.readline()
+                if not line:
+                    break
+                lines.append(line.strip())
+        return " | ".join(lines)
+    except Exception as e:
+        logger.warning("⚠️ Failed to read CSV header %s: %s", path, e)
+        return "[schema unavailable]"
 
-    results: List[Path] = []
-    for pattern in patterns:
-        results.extend(root.rglob(pattern))
-    return results
 
+def ingest_project_context(project_root: Path) -> ProjectContext:
+    """Scan project tree and build lightweight context summary.
 
-# ------------------------ public API --------------------------------
-
-
-def build_project_context(project_dir: Path) -> Dict[str, Any]:
-    """Build a lightweight context summary for a project.
-
-    Returns a dict with keys:
-        - doc_summaries: {relative_path: excerpt}
-        - dataset_files: [relative_path, ...]
-        - dataset_schemas: {relative_path: header/first-line sample}
-        - baseline_code_files: [relative_path, ...]
-        - summary: short human-readable bullet text
+    project_root is the per-project directory created by WorkspaceManager
+    (the folder that contains config.json, README.md, src/, data/, etc.).
     """
+    docs: List[DocSnippet] = []
+    datasets: List[DatasetSummary] = []
+    code: List[CodeSummary] = []
+    models: List[ModelArtifact] = []
 
-    project_dir = project_dir.resolve()
+    root = project_root
 
-    # --- docs ---
-    doc_files: List[Path] = []
-    for sub in [project_dir, project_dir / "workspace", project_dir / "docs"]:
-        if sub.exists():
-            doc_files.extend(_find_files(sub, ["README*.md", "*.md", "*.txt"]))
-
-    doc_summaries: Dict[str, str] = {}
-    for p in sorted(set(doc_files))[:5]:  # cap number of docs for prompts
-        rel = str(p.relative_to(project_dir))
-        snippet = _safe_read_text(p, max_chars=1500)
-        if snippet.strip():
-            doc_summaries[rel] = snippet
-
-    # --- datasets ---
-    dataset_roots = [project_dir / "data", project_dir / "workspace" / "input"]
-    dataset_files: List[str] = []
-    dataset_schemas: Dict[str, str] = {}
-
-    for root in dataset_roots:
-        if not root.exists():
-            continue
-        for p in _find_files(root, ["*.csv", "*.parquet", "*.json"]):
-            rel = str(p.relative_to(project_dir))
-            if rel not in dataset_files:
-                dataset_files.append(rel)
-            # very cheap header/schema hint
-            if p.suffix.lower() == ".csv":
-                try:
-                    with p.open("r", encoding="utf-8", errors="ignore") as f:
-                        header = f.readline().strip()
-                    if header:
-                        dataset_schemas[rel] = header[:500]
-                except Exception:
-                    continue
-
-    # --- baseline code/models ---
-    code_roots = [project_dir / "src", project_dir / "models"]
-    baseline_code_files: List[str] = []
-    for root in code_roots:
-        if not root.exists():
-            continue
-        for p in _find_files(root, ["*.py", "*.ipynb"]):
-            rel = str(p.relative_to(project_dir))
-            if rel not in baseline_code_files:
-                baseline_code_files.append(rel)
-
-    # --- human-readable rollup ---
-    summary_lines = [
-        f"Docs: {len(doc_summaries)} files summarised",
-        f"Datasets: {len(dataset_files)} files detected",
-        f"Schemas: {len(dataset_schemas)} CSV headers captured",
-        f"Baseline code: {len(baseline_code_files)} files (src/models)",
+    # ---------------------- Docs ----------------------
+    doc_dirs = [
+        root,
+        root / "workspace",
+        root / "docs",
     ]
+    doc_globs = ["README*.md", "*.md", "*.txt"]
 
-    return {
-        "doc_summaries": doc_summaries,
-        "dataset_files": dataset_files,
-        "dataset_schemas": dataset_schemas,
-        "baseline_code_files": baseline_code_files,
-        "summary": "; ".join(summary_lines),
-    }
+    for base in doc_dirs:
+        if not base.exists():
+            continue
+        for pattern in doc_globs:
+            for path in sorted(base.rglob(pattern)):
+                if len(docs) >= MAX_DOC_FILES:
+                    break
+                if path.is_file():
+                    rel = path.relative_to(root).as_posix()
+                    excerpt = _read_text_safely(path, MAX_DOC_CHARS)
+                    docs.append(DocSnippet(path=rel, kind="doc", excerpt=excerpt))
+            if len(docs) >= MAX_DOC_FILES:
+                break
+
+    # ---------------------- Datasets ----------------------
+    data_dirs = [root / "data", root / "workspace" / "input"]
+    data_globs = ["*.csv", "*.parquet", "*.json"]
+
+    for base in data_dirs:
+        if not base.exists():
+            continue
+        for pattern in data_globs:
+            for path in sorted(base.rglob(pattern)):
+                if not path.is_file():
+                    continue
+                rel = path.relative_to(root).as_posix()
+                suffix = path.suffix.lower()
+                kind = {
+                    ".csv": "csv",
+                    ".parquet": "parquet",
+                    ".json": "json",
+                }.get(suffix, suffix.lstrip("."))
+
+                schema = ""
+                if suffix == ".csv":
+                    schema = _summarize_csv_schema(path)
+                else:
+                    schema = kind
+
+                datasets.append(DatasetSummary(path=rel, kind=kind, schema=schema))
+
+    # ---------------------- Baseline code ----------------------
+    code_dirs = [root / "src", root / "models"]
+    code_globs = ["*.py", "*.ipynb"]
+
+    for base in code_dirs:
+        if not base.exists():
+            continue
+        for pattern in code_globs:
+            for path in sorted(base.rglob(pattern)):
+                if not path.is_file():
+                    continue
+                rel = path.relative_to(root).as_posix()
+                excerpt = _read_text_safely(path, MAX_DOC_CHARS // 2)
+                kind = "notebook" if path.suffix == ".ipynb" else "python"
+                code.append(CodeSummary(path=rel, kind=kind, excerpt=excerpt))
+
+    # ---------------------- Model artifacts ----------------------
+    model_dir = root / "models"
+    model_globs = ["*.pt", "*.onnx", "*.bin", "*.pkl", "*.safetensors"]
+
+    if model_dir.exists():
+        for pattern in model_globs:
+            for path in sorted(model_dir.rglob(pattern)):
+                if not path.is_file():
+                    continue
+                rel = path.relative_to(root).as_posix()
+                models.append(ModelArtifact(path=rel, kind=path.suffix.lstrip(".")))
+
+    ctx = ProjectContext(docs=docs, datasets=datasets, code=code, models=models)
+
+    logger.info(
+        "📚 Ingested project context: %d docs, %d datasets, %d code files, %d model artifacts",
+        len(docs),
+        len(datasets),
+        len(code),
+        len(models),
+    )
+
+    return ctx

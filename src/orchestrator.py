@@ -10,7 +10,8 @@ Changes in this revision:
 - For ML competition projects, metrics_config.json is derived from eval_metric/metadata
 - For non-ML projects, metrics_config.json defaults to a tests-based KPI (tests_passed_ratio)
 - refine_task passes project metadata (including competition URL, eval metric) to PRDGenerator
-- PRD-01: refine_task now enriches metadata with real project context (docs/datasets/baseline code)
+- NEW (PRD-01): refine_task ingests local project context (docs, datasets, baseline
+  code/models) and passes a compact summary into DeepSeek + PRD as metadata
 """
 
 from dataclasses import dataclass, asdict, field
@@ -24,6 +25,8 @@ import sys
 import asyncio
 import subprocess
 from abc import ABC, abstractmethod
+
+from context_ingestor import ingest_project_context  # PRD-01
 
 # Configure logging
 logging.basicConfig(
@@ -743,51 +746,17 @@ class RalphOrchestrator:
                 "error": error_msg,
             }
 
-    def _augment_metadata_with_context(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
-        """PRD-01: enrich metadata with real project artifacts.
-
-        This inspects the current project directory (if available) and attaches
-        lightweight summaries so DeepSeek can see README/docs, dataset files,
-        and baseline src/models when clarifying the task.
-        """
-        meta: Dict[str, Any] = dict(metadata or {})
-
-        if not self.current_project_dir:
-            return meta
-
-        try:
-            from context_ingestor import build_project_context
-
-            context = build_project_context(self.current_project_dir)
-            if not context:
-                return meta
-
-            # Attach high-level fields but avoid overriding explicit UI choices
-            meta.setdefault("dataset_files", context.get("dataset_files", []))
-            meta.setdefault("baseline_code_files", context.get("baseline_code_files", []))
-            meta.setdefault("documentation_files", list(context.get("doc_summaries", {}).keys()))
-
-            # Full context (summaries + schemas) for downstream PRD/agents
-            meta["uploaded_context"] = context
-            meta["uploaded_context_summary"] = context.get("summary", "")
-
-            logger.info(
-                "📎 PRD-01: attached project context to metadata (docs=%d, datasets=%d, code=%d)",
-                len(context.get("doc_summaries", {})),
-                len(context.get("dataset_files", [])),
-                len(context.get("baseline_code_files", [])),
-            )
-        except Exception as e:
-            logger.warning(f"⚠️ Context ingestion failed: {e}")
-
-        return meta
-
     def refine_task(
             self,
             project_id: str,
             raw_task: str
     ) -> Dict[str, Any]:
-        """Task clarification + PRD generation (PR-001, now project-aware)"""
+        """Task clarification + PRD generation (PR-001, now project-aware).
+
+        NEW (PRD-01): before calling DeepSeek we ingest local project context
+        (docs, datasets, baseline code + model artifacts) and pass a compact
+        summary through metadata so the model can ground PRD in real files.
+        """
         try:
             from task_clarifier import TaskClarifier
             from prd_generator import PRDGenerator
@@ -796,23 +765,47 @@ class RalphOrchestrator:
             if not config:
                 return {"status": "error", "error": "No project created"}
 
-            # PRD-01: enrich metadata with real project context before calling DeepSeek
-            enriched_meta = self._augment_metadata_with_context(config.metadata)
-            config.metadata = enriched_meta
+            # Ingest project context (docs/datasets/baseline code/models)
+            context_summary_text = ""
+            if self.current_project_dir and self.current_project_dir.exists():
+                ctx = ingest_project_context(self.current_project_dir)
+                context_summary = ctx.to_dict()
+                context_summary_text = ctx.to_text_summary()
+
+                # Attach to metadata (non-destructive merge)
+                meta = dict(config.metadata or {})
+                meta.setdefault("ingested_context", context_summary)
+                config.metadata = meta
+
+                self._log(
+                    "📚 Project context attached to metadata (docs=%d, datasets=%d, code=%d, models=%d)",
+                    len(context_summary.get("docs", [])),
+                    len(context_summary.get("datasets", [])),
+                    len(context_summary.get("code", [])),
+                    len(context_summary.get("models", [])),
+                )
 
             self._log("🔍 Task Clarification Phase")
             self._log(f"   Input: {raw_task[:100]}...")
 
             clarifier = TaskClarifier(self.deepseek_client)
 
-            # Pass project context into the clarifier so Deepseek can reason about competition/API specifics
+            # Pass project context into the clarifier so Deepseek can reason
+            # about real files in addition to high-level description.
+            enriched_raw_task = raw_task
+            if context_summary_text:
+                enriched_raw_task = (
+                    f"{raw_task}\n\n"  # original prompt first
+                    "---\nPROJECT FILE CONTEXT (from local workspace):\n"  # separator
+                    f"{context_summary_text}"
+                )
+
             brief = asyncio.run(
                 clarifier.clarify(
-                    raw_task=raw_task,
+                    raw_task=enriched_raw_task,
                     domain=config.domain,
                     framework=config.framework,
                     database=config.database,
-                    metadata=enriched_meta,
                 )
             )
 
@@ -821,7 +814,7 @@ class RalphOrchestrator:
 
             # Attach project metadata and id into the brief for downstream PRD generation
             brief["project_id"] = project_id
-            brief["project_metadata"] = enriched_meta
+            brief["project_metadata"] = config.metadata
 
             self._log("✅ Task clarified")
             self._log(f"   {brief['clarified_task'][:100]}...")
@@ -831,7 +824,7 @@ class RalphOrchestrator:
             prd = gen.generate(
                 technical_brief=brief,
                 domain=config.domain,
-                project_metadata=enriched_meta,
+                project_metadata=config.metadata,
             )
             self._log(f"✅ PRD generated: {prd['total_items']} items")
 
@@ -1063,8 +1056,8 @@ PROJECT INFO:
 - Model: {meta.get('model_type', 'LSTM')}
 - Primary KPI: {meta.get('eval_metric', 'score')} (threshold in metrics_config.json)
 
-UPLOADED CONTEXT (from docs/datasets/baseline code):
-- {meta.get('uploaded_context_summary', 'No additional context attached')}
+If ingested_context is present in project_metadata, you MUST respect it as the
+source of truth for file locations and existing code/model artifacts.
 
 YOUR TASK:
 Implement the assigned PRD items. For each item:
@@ -1108,8 +1101,8 @@ PROJECT INFO:
 - Language: {config.language if config else 'Python'}
 - Database: {config.database if config else 'PostgreSQL'}
 
-UPLOADED CONTEXT (from docs/datasets/baseline code):
-- {config.metadata.get('uploaded_context_summary', 'No additional context attached')}
+If ingested_context is present in project_metadata, you MUST respect it as the
+source of truth for file locations and existing code/model artifacts.
 
 YOUR TASK:
 Implement the assigned PRD items. For each item:
@@ -1194,8 +1187,10 @@ Start implementation now. Generate complete, working code."""
         """Execute validation on generated code (PR-003)"""
         pass
 
-    def _log(self, message: str) -> None:
-        """Log to orchestrator"""
+    def _log(self, message: str, *args: Any) -> None:
+        """Log to orchestrator (format-compatible)."""
+        if args:
+            message = message % args
         logger.info(message)
         if self.execution_log is not None:
             self.execution_log.append(message)
