@@ -76,6 +76,13 @@ class ProjectWizard(tk.Toplevel):
         y = max(20, (screen_h - height) // 2)
         self.geometry(f"{width}x{height}+{x}+{y}")
         
+        # Grid-based layout: header (row 0), content (row 1, expandable), footer (row 2)
+        self.grid_rowconfigure(1, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+        # Ensure a reasonable minimum size but still fit on smaller screens
+        min_height = min(600, height)
+        self.minsize(int(screen_w * 0.7), min_height)
+        
         self.orchestrator = orchestrator
         self.async_thread = async_thread
         self.parent_ui = parent
@@ -124,9 +131,8 @@ class ProjectWizard(tk.Toplevel):
     def _create_ui(self):
         """Create wizard UI"""
         # Header with step indicators
-        header = tk.Frame(self, bg=self.colors['bg_secondary'], height=80)
-        header.pack(fill='x', padx=20, pady=(20, 10))
-        header.pack_propagate(False)
+        header = tk.Frame(self, bg=self.colors['bg_secondary'])
+        header.grid(row=0, column=0, sticky='ew', padx=20, pady=(20, 10))
         
         self.step_labels = []
         steps = ['1. Basic Info', '2. AI Suggestions', '3. Review & Advanced']
@@ -143,12 +149,11 @@ class ProjectWizard(tk.Toplevel):
         
         # Content frame (holds step content)
         self.content_frame = tk.Frame(self, bg=self.colors['bg_primary'])
-        self.content_frame.pack(fill='both', expand=True, padx=20, pady=10)
+        self.content_frame.grid(row=1, column=0, sticky='nsew', padx=20, pady=10)
         
         # Footer with navigation buttons
-        footer = tk.Frame(self, bg=self.colors['bg_secondary'], height=80)
-        footer.pack(fill='x', padx=20, pady=(10, 20))
-        footer.pack_propagate(False)
+        footer = tk.Frame(self, bg=self.colors['bg_secondary'])
+        footer.grid(row=2, column=0, sticky='ew', padx=20, pady=(10, 20))
         
         self.back_btn = tk.Button(
             footer,
