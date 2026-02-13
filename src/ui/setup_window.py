@@ -384,9 +384,16 @@ class ProjectWizard(tk.Toplevel):
     
     def _browse_files(self, key: str, label: tk.Label):
         """Browse and select files"""
+        filetypes = [
+            ("All files", "*"),
+            ("Text / Markdown", "*.txt *.md"),
+            ("PDF", "*.pdf"),
+            ("Parquet", "*.parquet"),
+            ("Python", "*.py"),
+        ]
         files = filedialog.askopenfilenames(
             title=f"Select {key.replace('_', ' ').title()}",
-            filetypes=[("All files", "*.*")]
+            filetypes=filetypes,
         )
         if files:
             self.project_data[key] = list(files)
@@ -1130,7 +1137,7 @@ Features:
                 self.after(0, lambda: self.prd_preview.insert('1.0', prd_summary))
                 self.after(0, lambda: messagebox.showinfo("Success", "PRD generated! Go to Execution tab to run agents."))
             else:
-                self.after(0, lambda: messagebox.showerror("Error", result.get('error', 'Unknown error')))
+                self.after(0, lambda: self.after(0, lambda: messagebox.showerror("Error", result.get('error', 'Unknown error'))))
         
         self.async_thread.submit(refine())
         messagebox.showinfo("Processing", "Refining task... This may take 30-60 seconds.")
