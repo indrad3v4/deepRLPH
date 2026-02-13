@@ -552,61 +552,170 @@ class RalphUI(tk.Tk):
         scrollbar.pack(side='right', fill='y')
         self.logs_text.config(yscrollcommand=scrollbar.set)
 
-    # ========== IMPROVED: DYNAMIC PROJECT DIALOG ==========
+    # ========== NEW: 3-STEP FULLSCREEN PROJECT WIZARD (UI-001) ==========
 
     def _new_project_dialog(self):
-        """✅ IMPROVED: Create new project dialog with dynamic API/ML forms"""
+        """Create new project via 3-step fullscreen wizard (Basic → AI → Review)."""
+        # Fullscreen modal dialog sized to main window
         dialog = tk.Toplevel(self)
         dialog.title("Create New Project")
-        dialog.geometry("600x850")
-        dialog.resizable(False, False)
+        width = self.winfo_width()
+        height = self.winfo_height()
+        x = self.winfo_rootx()
+        y = self.winfo_rooty()
+        dialog.geometry(f"{width}x{height}+{x}+{y}")
+        dialog.transient(self)
+        dialog.grab_set()
+        dialog.focus_set()
 
+        # Wizard state
+        current_step = tk.IntVar(value=1)
+        step_titles = {
+            1: "Basic Info",
+            2: "AI Suggestions",
+            3: "Review & Advanced",
+        }
+
+        project_type_var = tk.StringVar(value="api")  # "api" or "ml"
+        name_var = tk.StringVar()
+
+        # Container
         container = ttk.Frame(dialog, padding=20)
         container.pack(fill='both', expand=True)
 
-        # ========== PROJECT TYPE SELECTOR ==========
-        type_frame = ttk.LabelFrame(container, text="Project Type", padding=15)
-        type_frame.pack(fill='x', pady=(0, 20))
+        # Header
+        header = ttk.Frame(container)
+        header.pack(fill='x', pady=(0, 10))
 
-        project_type = tk.StringVar(value="api")
+        ttk.Label(
+            header,
+            text="New Project Wizard",
+            font=('Arial', 18, 'bold')
+        ).pack(anchor='w')
+
+        step_label = ttk.Label(
+            header,
+            text="",
+            font=('Arial', 11),
+            foreground=self.colors['text_muted']
+        )
+        step_label.pack(anchor='w', pady=(4, 0))
+
+        # Step frames holder
+        steps_holder = ttk.Frame(container)
+        steps_holder.pack(fill='both', expand=True, pady=(10, 10))
+
+        step1 = ttk.Frame(steps_holder)
+        step2 = ttk.Frame(steps_holder)
+        step3 = ttk.Frame(steps_holder)
+
+        # ---------- STEP 1: BASIC INFO ----------
+        ttk.Label(
+            step1,
+            text="Step 1 – Basic Info",
+            font=('Arial', 14, 'bold')
+        ).pack(anchor='w', pady=(0, 10))
+
+        ttk.Label(
+            step1,
+            text="Describe what you want to build. Later steps will refine stack and metrics.",
+            font=('Arial', 10),
+            foreground=self.colors['text_muted']
+        ).pack(anchor='w', pady=(0, 10))
+
+        # Project type selector
+        type_frame = ttk.LabelFrame(step1, text="Project Type", padding=15)
+        type_frame.pack(fill='x', pady=(0, 15))
 
         def on_type_change():
-            """Show/hide fields based on project type"""
-            if project_type.get() == "api":
-                # Show API fields
-                api_fields_frame.pack(fill='x', pady=10)
-                ml_fields_frame.pack_forget()
-            else:
-                # Show ML fields
-                api_fields_frame.pack_forget()
-                ml_fields_frame.pack(fill='x', pady=10)
+            # Actual show/hide of advanced fields happens in Step 3,
+            # but we keep a single state variable here.
+            refresh_type_frames()
 
         ttk.Radiobutton(
             type_frame,
             text="🔧 API Development",
-            variable=project_type,
+            variable=project_type_var,
             value="api",
             command=on_type_change
-        ).pack(side='left', padx=20)
+        ).pack(side='left', padx=10)
 
         ttk.Radiobutton(
             type_frame,
             text="🤖 ML Competition",
-            variable=project_type,
+            variable=project_type_var,
             value="ml",
             command=on_type_change
-        ).pack(side='left', padx=20)
+        ).pack(side='left', padx=10)
 
-        # ========== COMMON: PROJECT NAME ==========
-        ttk.Label(container, text="Project Name *", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(0, 5))
-        name_entry = ttk.Entry(container, width=60)
-        name_entry.pack(anchor='w', pady=5, fill='x')
+        # Project name
+        ttk.Label(step1, text="Project Name *", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(10, 5))
+        name_entry = ttk.Entry(step1, textvariable=name_var, width=80)
+        name_entry.pack(anchor='w', pady=(0, 10), fill='x')
 
-        # ========== API DEVELOPMENT FIELDS ==========
-        api_fields_frame = ttk.Frame(container)
+        # Description
+        ttk.Label(step1, text="Project Description", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(5, 5))
+        desc_text = tk.Text(step1, height=10, wrap='word')
+        desc_text.pack(fill='both', expand=True)
+
+        # ---------- STEP 2: AI SUGGESTIONS (placeholder for now) ----------
+        ttk.Label(
+            step2,
+            text="Step 2 – AI Suggestions",
+            font=('Arial', 14, 'bold')
+        ).pack(anchor='w', pady=(0, 10))
+
+        ttk.Label(
+            step2,
+            text=(
+                "Here DeepSeek will analyze your description and files to suggest "
+                "architecture, framework, KPI and training preset."
+            ),
+            font=('Arial', 10),
+            foreground=self.colors['text_muted']
+        ).pack(anchor='w', pady=(0, 15))
+
+        ttk.Label(
+            step2,
+            text="UI-003 will wire the real AI call. For now this step is structural only.",
+            font=('Arial', 9),
+            foreground=self.colors['text_muted']
+        ).pack(anchor='w', pady=(0, 10))
+
+        def ask_ai_placeholder():
+            messagebox.showinfo(
+                "AI Suggestions",
+                "AI suggestions wizard step (UI-003) is not implemented yet.\n\n"
+                "Right now we only provide the 3-step flow (UI-001)."
+            )
+
+        ttk.Button(
+            step2,
+            text="🤖 Ask AI / Generate Suggestions (coming soon)",
+            command=ask_ai_placeholder
+        ).pack(anchor='w', pady=(10, 5))
+
+        # ---------- STEP 3: REVIEW & ADVANCED (reuses existing fields) ----------
+        ttk.Label(
+            step3,
+            text="Step 3 – Review & Advanced",
+            font=('Arial', 14, 'bold')
+        ).pack(anchor='w', pady=(0, 10))
+
+        ttk.Label(
+            step3,
+            text="Fine-tune stack details before creating the project.",
+            font=('Arial', 10),
+            foreground=self.colors['text_muted']
+        ).pack(anchor='w', pady=(0, 10))
+
+        advanced_frame = ttk.Frame(step3)
+        advanced_frame.pack(fill='both', expand=True)
+
+        # API fields
+        api_fields_frame = ttk.Frame(advanced_frame)
         api_fields_frame.pack(fill='x', pady=10)
 
-        # Domain
         ttk.Label(api_fields_frame, text="Domain *", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(10, 5))
         domain_var = tk.StringVar(value="llm-app")
         ttk.Combobox(
@@ -617,7 +726,6 @@ class RalphUI(tk.Tk):
             width=57
         ).pack(anchor='w', pady=5, fill='x')
 
-        # Architecture
         ttk.Label(api_fields_frame, text="Architecture *", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(10, 5))
         arch_var = tk.StringVar(value="clean_architecture")
         ttk.Combobox(
@@ -628,7 +736,6 @@ class RalphUI(tk.Tk):
             width=57
         ).pack(anchor='w', pady=5, fill='x')
 
-        # Framework
         ttk.Label(api_fields_frame, text="Framework *", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(10, 5))
         framework_var = tk.StringVar(value="FastAPI")
         ttk.Combobox(
@@ -639,7 +746,6 @@ class RalphUI(tk.Tk):
             width=57
         ).pack(anchor='w', pady=5, fill='x')
 
-        # Database
         ttk.Label(api_fields_frame, text="Database *", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(10, 5))
         db_var = tk.StringVar(value="PostgreSQL")
         ttk.Combobox(
@@ -650,23 +756,19 @@ class RalphUI(tk.Tk):
             width=57
         ).pack(anchor='w', pady=5, fill='x')
 
-        # Duration
         ttk.Label(api_fields_frame, text="Execution Duration (hours) *", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(10, 5))
         duration_var = tk.IntVar(value=4)
         ttk.Spinbox(api_fields_frame, from_=1, to=24, textvariable=duration_var, width=10).pack(anchor='w', pady=5)
 
-        # ========== ML COMPETITION FIELDS ==========
-        ml_fields_frame = ttk.Frame(container)
-        # Initially hidden
+        # ML fields
+        ml_fields_frame = ttk.Frame(advanced_frame)
+        # Hidden by default; toggled by refresh_type_frames
 
-        # Competition URL
         ttk.Label(ml_fields_frame, text="Competition URL *", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(10, 5))
         comp_url_var = tk.StringVar(value="https://wundernn.io")
         ttk.Entry(ml_fields_frame, textvariable=comp_url_var, width=60).pack(anchor='w', pady=5, fill='x')
 
-        # Wundernn.io Preset Button
         def load_wundernn_preset():
-            """🎯 Load Wundernn.io competition preset"""
             comp_url_var.set("https://wundernn.io")
             problem_type_var.set("time_series_forecasting")
             model_type_var.set("LSTM")
@@ -675,7 +777,14 @@ class RalphUI(tk.Tk):
             epochs_var.set(100)
             lr_var.set("0.001")
             eval_metric_var.set("R²")
-            messagebox.showinfo("Preset Loaded", "Wundernn.io configuration loaded!\n\n✅ Problem: Time Series Forecasting\n✅ Model: LSTM\n✅ Framework: PyTorch\n✅ Batch: 64, Epochs: 100")
+            messagebox.showinfo(
+                "Preset Loaded",
+                "Wundernn.io configuration loaded!\n\n"
+                "✅ Problem: Time Series Forecasting\n"
+                "✅ Model: LSTM\n"
+                "✅ Framework: PyTorch\n"
+                "✅ Batch: 64, Epochs: 100"
+            )
 
         ttk.Button(
             ml_fields_frame,
@@ -683,7 +792,6 @@ class RalphUI(tk.Tk):
             command=load_wundernn_preset
         ).pack(anchor='w', pady=10)
 
-        # Problem Type
         ttk.Label(ml_fields_frame, text="Problem Type *", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(10, 5))
         problem_type_var = tk.StringVar(value="classification")
         ttk.Combobox(
@@ -694,7 +802,6 @@ class RalphUI(tk.Tk):
             width=57
         ).pack(anchor='w', pady=5, fill='x')
 
-        # Model Type
         ttk.Label(ml_fields_frame, text="Model Type *", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(10, 5))
         model_type_var = tk.StringVar(value="LSTM")
         ttk.Combobox(
@@ -705,7 +812,6 @@ class RalphUI(tk.Tk):
             width=57
         ).pack(anchor='w', pady=5, fill='x')
 
-        # ML Framework
         ttk.Label(ml_fields_frame, text="ML Framework *", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(10, 5))
         ml_framework_var = tk.StringVar(value="PyTorch")
         ttk.Combobox(
@@ -716,7 +822,6 @@ class RalphUI(tk.Tk):
             width=57
         ).pack(anchor='w', pady=5, fill='x')
 
-        # Dataset Files
         dataset_files = []
         ttk.Label(ml_fields_frame, text="Dataset Files (optional)", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(10, 5))
         dataset_label = ttk.Label(ml_fields_frame, text="No files selected", foreground="gray")
@@ -734,7 +839,6 @@ class RalphUI(tk.Tk):
 
         ttk.Button(ml_fields_frame, text="📁 Browse Files...", command=browse_datasets).pack(anchor='w', pady=5)
 
-        # Training Config Row
         train_config_frame = ttk.Frame(ml_fields_frame)
         train_config_frame.pack(fill='x', pady=(15, 5))
 
@@ -755,7 +859,6 @@ class RalphUI(tk.Tk):
         lr_var = tk.StringVar(value="0.001")
         ttk.Entry(config_row, textvariable=lr_var, width=10).pack(side='left')
 
-        # Evaluation Metric
         ttk.Label(ml_fields_frame, text="Evaluation Metric *", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(10, 5))
         eval_metric_var = tk.StringVar(value="R²")
         ttk.Combobox(
@@ -766,39 +869,88 @@ class RalphUI(tk.Tk):
             width=57
         ).pack(anchor='w', pady=5, fill='x')
 
-        # ========== CREATE BUTTON ==========
-        btn_frame = ttk.Frame(container)
-        btn_frame.pack(fill='x', pady=(30, 0))
+        def refresh_type_frames():
+            """Show proper advanced fields for selected project type."""
+            if project_type_var.get() == "api":
+                api_fields_frame.pack(fill='x', pady=10)
+                ml_fields_frame.pack_forget()
+            else:
+                api_fields_frame.pack_forget()
+                ml_fields_frame.pack(fill='x', pady=10)
+
+        # Initial layout based on default type
+        refresh_type_frames()
+
+        # ---------- NAVIGATION & CREATE ----------
+        nav_frame = ttk.Frame(container)
+        nav_frame.pack(fill='x', pady=(5, 0))
+
+        def update_step_ui():
+            step = current_step.get()
+            step_label.config(text=f"Step {step} of 3 – {step_titles[step]}")
+
+            for f in (step1, step2, step3):
+                f.pack_forget()
+            if step == 1:
+                step1.pack(fill='both', expand=True)
+            elif step == 2:
+                step2.pack(fill='both', expand=True)
+            else:
+                step3.pack(fill='both', expand=True)
+
+            back_btn.config(state='normal' if step > 1 else 'disabled')
+            next_btn.config(state='normal' if step < 3 else 'disabled')
+            create_btn.config(state='normal' if step == 3 else 'disabled')
+
+        def go_next(event=None):
+            step = current_step.get()
+            if step == 1:
+                if not name_var.get().strip():
+                    messagebox.showwarning("Input Error", "Enter project name")
+                    return
+            if step < 3:
+                current_step.set(step + 1)
+                update_step_ui()
+
+        def go_back(event=None):
+            step = current_step.get()
+            if step > 1:
+                current_step.set(step - 1)
+                update_step_ui()
 
         def create_project():
-            name = name_entry.get().strip()
+            name = name_var.get().strip()
             if not name:
                 messagebox.showwarning("Input Error", "Enter project name")
+                current_step.set(1)
+                update_step_ui()
                 return
 
-            if project_type.get() == "api":
-                # API Development Project
+            description = desc_text.get('1.0', 'end').strip()
+
+            if project_type_var.get() == "api":
                 config = ProjectConfig(
                     name=name,
                     domain=domain_var.get(),
+                    description=description,
                     architecture=arch_var.get(),
                     framework=framework_var.get(),
                     database=db_var.get(),
-                    duration_hours=duration_var.get()
+                    duration_hours=duration_var.get(),
                 )
                 project_type_display = "API Development"
             else:
-                # ML Competition Project
                 config = ProjectConfig(
                     name=name,
                     domain=problem_type_var.get(),
+                    description=description,
                     architecture="ml_pipeline",
                     framework=ml_framework_var.get(),
                     database="None",
                     duration_hours=24,
-                    # ML-specific metadata
                     metadata={
                         "project_type": "ml_competition",
+                        "description": description,
                         "competition_url": comp_url_var.get(),
                         "problem_type": problem_type_var.get(),
                         "model_type": model_type_var.get(),
@@ -807,20 +959,16 @@ class RalphUI(tk.Tk):
                         "epochs": epochs_var.get(),
                         "learning_rate": float(lr_var.get()),
                         "eval_metric": eval_metric_var.get(),
-                        "dataset_files": list(dataset_files)
-                    }
+                        "dataset_files": list(dataset_files),
+                    },
                 )
                 project_type_display = "ML Competition"
 
             result = self.orchestrator.create_project(config)
             if result.get("status") == "success":
                 self._log(f"✅ {project_type_display} project created: {result.get('project_id')}")
-                
-                # ✅ FIX: Force refresh and UI update
                 self._refresh_projects()
-                
                 dialog.destroy()
-                
                 messagebox.showinfo(
                     "Success",
                     f"{project_type_display} project '{name}' created!\n\nID: {result.get('project_id')}\n\nCheck the Projects tab to see it!"
@@ -828,8 +976,25 @@ class RalphUI(tk.Tk):
             else:
                 messagebox.showerror("Error", result.get("error", "Unknown error"))
 
-        ttk.Button(btn_frame, text="✅ Create", command=create_project, width=20).pack(side='left', padx=5)
-        ttk.Button(btn_frame, text="❌ Cancel", command=dialog.destroy, width=20).pack(side='left', padx=5)
+        back_btn = ttk.Button(nav_frame, text="← Back", command=go_back)
+        back_btn.pack(side='left', padx=5)
+
+        next_btn = ttk.Button(nav_frame, text="Next →", command=go_next)
+        next_btn.pack(side='left', padx=5)
+
+        create_btn = ttk.Button(nav_frame, text="✅ Create", command=create_project)
+        create_btn.pack(side='right', padx=5)
+
+        cancel_btn = ttk.Button(nav_frame, text="❌ Cancel", command=dialog.destroy)
+        cancel_btn.pack(side='right', padx=5)
+
+        # Keyboard shortcuts
+        dialog.bind('<Escape>', lambda e: dialog.destroy())
+        dialog.bind('<Return>', lambda e: go_next() if current_step.get() < 3 else create_project())
+
+        # Initialize first step
+        update_step_ui()
+        name_entry.focus_set()
 
     # ========== EXISTING EVENT HANDLERS (unchanged) ==========
 
