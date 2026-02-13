@@ -337,12 +337,21 @@ class ProjectWizard(tk.Toplevel):
         self.doc_label.grid(row=0, column=1, sticky='w', padx=10)
         self.file_labels['doc_files'] = self.doc_label
         
+        doc_btn_frame = tk.Frame(files_frame, bg=self.colors['bg_primary'])
+        doc_btn_frame.grid(row=0, column=2, padx=5, sticky='e')
+        
         tk.Button(
-            files_frame,
+            doc_btn_frame,
             text="Browse...",
             command=lambda: self._browse_files('doc_files', self.doc_label),
             font=('Arial', 9)
-        ).grid(row=0, column=2, padx=5)
+        ).pack(side='left', padx=(0, 4))
+        tk.Button(
+            doc_btn_frame,
+            text="Remove",
+            command=lambda: self._remove_selected_files('doc_files'),
+            font=('Arial', 8)
+        ).pack(side='left')
         
         self.doc_listbox = tk.Listbox(
             files_frame,
@@ -353,15 +362,8 @@ class ProjectWizard(tk.Toplevel):
             selectmode='extended',
             exportselection=False
         )
-        self.doc_listbox.grid(row=1, column=0, columnspan=2, sticky='ew', pady=(0, 2))
+        self.doc_listbox.grid(row=1, column=0, columnspan=3, sticky='ew', pady=(0, 2))
         self.file_listboxes['doc_files'] = self.doc_listbox
-        
-        tk.Button(
-            files_frame,
-            text="Remove selected",
-            command=lambda: self._remove_selected_files('doc_files'),
-            font=('Arial', 8)
-        ).grid(row=1, column=2, sticky='e', padx=5, pady=(0, 2))
         
         # Dataset files
         tk.Label(
@@ -382,12 +384,21 @@ class ProjectWizard(tk.Toplevel):
         self.dataset_label.grid(row=2, column=1, sticky='w', padx=10)
         self.file_labels['dataset_files'] = self.dataset_label
         
+        dataset_btn_frame = tk.Frame(files_frame, bg=self.colors['bg_primary'])
+        dataset_btn_frame.grid(row=2, column=2, padx=5, sticky='e')
+        
         tk.Button(
-            files_frame,
+            dataset_btn_frame,
             text="Browse...",
             command=lambda: self._browse_files('dataset_files', self.dataset_label),
             font=('Arial', 9)
-        ).grid(row=2, column=2, padx=5)
+        ).pack(side='left', padx=(0, 4))
+        tk.Button(
+            dataset_btn_frame,
+            text="Remove",
+            command=lambda: self._remove_selected_files('dataset_files'),
+            font=('Arial', 8)
+        ).pack(side='left')
         
         self.dataset_listbox = tk.Listbox(
             files_frame,
@@ -398,15 +409,8 @@ class ProjectWizard(tk.Toplevel):
             selectmode='extended',
             exportselection=False
         )
-        self.dataset_listbox.grid(row=3, column=0, columnspan=2, sticky='ew', pady=(0, 2))
+        self.dataset_listbox.grid(row=3, column=0, columnspan=3, sticky='ew', pady=(0, 2))
         self.file_listboxes['dataset_files'] = self.dataset_listbox
-        
-        tk.Button(
-            files_frame,
-            text="Remove selected",
-            command=lambda: self._remove_selected_files('dataset_files'),
-            font=('Arial', 8)
-        ).grid(row=3, column=2, sticky='e', padx=5, pady=(0, 2))
         
         # Baseline code/models
         tk.Label(
@@ -427,12 +431,21 @@ class ProjectWizard(tk.Toplevel):
         self.baseline_label.grid(row=4, column=1, sticky='w', padx=10)
         self.file_labels['baseline_files'] = self.baseline_label
         
+        baseline_btn_frame = tk.Frame(files_frame, bg=self.colors['bg_primary'])
+        baseline_btn_frame.grid(row=4, column=2, padx=5, sticky='e')
+        
         tk.Button(
-            files_frame,
+            baseline_btn_frame,
             text="Browse...",
             command=lambda: self._browse_files('baseline_files', self.baseline_label),
             font=('Arial', 9)
-        ).grid(row=4, column=2, padx=5)
+        ).pack(side='left', padx=(0, 4))
+        tk.Button(
+            baseline_btn_frame,
+            text="Remove",
+            command=lambda: self._remove_selected_files('baseline_files'),
+            font=('Arial', 8)
+        ).pack(side='left')
         
         self.baseline_listbox = tk.Listbox(
             files_frame,
@@ -443,15 +456,8 @@ class ProjectWizard(tk.Toplevel):
             selectmode='extended',
             exportselection=False
         )
-        self.baseline_listbox.grid(row=5, column=0, columnspan=2, sticky='ew', pady=(0, 2))
+        self.baseline_listbox.grid(row=5, column=0, columnspan=3, sticky='ew', pady=(0, 2))
         self.file_listboxes['baseline_files'] = self.baseline_listbox
-        
-        tk.Button(
-            files_frame,
-            text="Remove selected",
-            command=lambda: self._remove_selected_files('baseline_files'),
-            font=('Arial', 8)
-        ).grid(row=5, column=2, sticky='e', padx=5, pady=(0, 2))
         
         container.columnconfigure(0, weight=1)
         
