@@ -221,7 +221,7 @@ class ProjectWizard(tk.Toplevel):
     def _create_step1_basic_info(self):
         """Step 1: Basic Info (UI-002)"""
         container = tk.Frame(self.content_frame, bg=self.colors['bg_primary'])
-        container.pack(fill='both', expand=True, padx=40, pady=20)
+        container.pack(fill='both', expand=True, padx=40, pady=10)
         
         # Project Name
         tk.Label(
@@ -230,10 +230,10 @@ class ProjectWizard(tk.Toplevel):
             font=('Arial', 12, 'bold'),
             bg=self.colors['bg_primary'],
             fg=self.colors['text_primary']
-        ).grid(row=0, column=0, sticky='w', pady=(0, 5))
+        ).grid(row=0, column=0, sticky='w', pady=(0, 4))
         
         self.name_entry = tk.Entry(container, font=('Arial', 11), width=60)
-        self.name_entry.grid(row=1, column=0, columnspan=2, sticky='ew', pady=(0, 20))
+        self.name_entry.grid(row=1, column=0, columnspan=2, sticky='ew', pady=(0, 10))
         self.name_entry.insert(0, self.project_data['name'])
         
         # Project Type
@@ -243,10 +243,10 @@ class ProjectWizard(tk.Toplevel):
             font=('Arial', 12, 'bold'),
             bg=self.colors['bg_primary'],
             fg=self.colors['text_primary']
-        ).grid(row=2, column=0, sticky='w', pady=(0, 5))
+        ).grid(row=2, column=0, sticky='w', pady=(0, 4))
         
         type_frame = tk.Frame(container, bg=self.colors['bg_primary'])
-        type_frame.grid(row=3, column=0, columnspan=2, sticky='w', pady=(0, 20))
+        type_frame.grid(row=3, column=0, columnspan=2, sticky='w', pady=(0, 10))
         
         self.project_type_var = tk.StringVar(value=self.project_data['project_type'])
         tk.Radiobutton(
@@ -278,7 +278,7 @@ class ProjectWizard(tk.Toplevel):
             font=('Arial', 12, 'bold'),
             bg=self.colors['bg_primary'],
             fg=self.colors['text_primary']
-        ).grid(row=4, column=0, sticky='w', pady=(0, 5))
+        ).grid(row=4, column=0, sticky='w', pady=(0, 4))
         
         tk.Label(
             container,
@@ -286,10 +286,10 @@ class ProjectWizard(tk.Toplevel):
             font=('Arial', 9),
             bg=self.colors['bg_primary'],
             fg=self.colors['text_secondary']
-        ).grid(row=5, column=0, sticky='w', pady=(0, 5))
+        ).grid(row=5, column=0, sticky='w', pady=(0, 4))
         
-        self.desc_text = tk.Text(container, height=8, width=80, font=('Arial', 10), wrap='word')
-        self.desc_text.grid(row=6, column=0, columnspan=2, sticky='ew', pady=(0, 20))
+        self.desc_text = tk.Text(container, height=5, width=80, font=('Arial', 10), wrap='word')
+        self.desc_text.grid(row=6, column=0, columnspan=2, sticky='ew', pady=(0, 10))
         self.desc_text.insert('1.0', self.project_data['description'])
         
         # Tags
@@ -299,15 +299,15 @@ class ProjectWizard(tk.Toplevel):
             font=('Arial', 12, 'bold'),
             bg=self.colors['bg_primary'],
             fg=self.colors['text_primary']
-        ).grid(row=7, column=0, sticky='w', pady=(0, 5))
+        ).grid(row=7, column=0, sticky='w', pady=(0, 4))
         
         self.tags_entry = tk.Entry(container, font=('Arial', 11), width=60)
-        self.tags_entry.grid(row=8, column=0, columnspan=2, sticky='ew', pady=(0, 20))
+        self.tags_entry.grid(row=8, column=0, columnspan=2, sticky='ew', pady=(0, 10))
         self.tags_entry.insert(0, self.project_data['tags'])
         
         # File pickers
         files_frame = tk.Frame(container, bg=self.colors['bg_primary'])
-        files_frame.grid(row=9, column=0, columnspan=2, sticky='ew', pady=(0, 10))
+        files_frame.grid(row=9, column=0, columnspan=2, sticky='ew', pady=(0, 5))
         
         # Documentation files
         tk.Label(
@@ -316,7 +316,7 @@ class ProjectWizard(tk.Toplevel):
             font=('Arial', 11, 'bold'),
             bg=self.colors['bg_primary'],
             fg=self.colors['text_primary']
-        ).grid(row=0, column=0, sticky='w', pady=5)
+        ).grid(row=0, column=0, sticky='w', pady=2)
         
         self.doc_label = tk.Label(
             files_frame,
@@ -337,14 +337,14 @@ class ProjectWizard(tk.Toplevel):
         
         self.doc_listbox = tk.Listbox(
             files_frame,
-            height=3,
+            height=2,
             width=60,
             bg=self.colors['bg_primary'],
             fg=self.colors['text_secondary'],
             selectmode='extended',
             exportselection=False
         )
-        self.doc_listbox.grid(row=1, column=0, columnspan=2, sticky='ew', pady=(0, 5))
+        self.doc_listbox.grid(row=1, column=0, columnspan=2, sticky='ew', pady=(0, 2))
         self.file_listboxes['doc_files'] = self.doc_listbox
         
         tk.Button(
@@ -352,7 +352,7 @@ class ProjectWizard(tk.Toplevel):
             text="Remove selected",
             command=lambda: self._remove_selected_files('doc_files'),
             font=('Arial', 8)
-        ).grid(row=1, column=2, sticky='e', padx=5, pady=(0, 5))
+        ).grid(row=1, column=2, sticky='e', padx=5, pady=(0, 2))
         
         # Dataset files
         tk.Label(
@@ -361,7 +361,7 @@ class ProjectWizard(tk.Toplevel):
             font=('Arial', 11, 'bold'),
             bg=self.colors['bg_primary'],
             fg=self.colors['text_primary']
-        ).grid(row=2, column=0, sticky='w', pady=5)
+        ).grid(row=2, column=0, sticky='w', pady=2)
         
         self.dataset_label = tk.Label(
             files_frame,
@@ -382,14 +382,14 @@ class ProjectWizard(tk.Toplevel):
         
         self.dataset_listbox = tk.Listbox(
             files_frame,
-            height=3,
+            height=2,
             width=60,
             bg=self.colors['bg_primary'],
             fg=self.colors['text_secondary'],
             selectmode='extended',
             exportselection=False
         )
-        self.dataset_listbox.grid(row=3, column=0, columnspan=2, sticky='ew', pady=(0, 5))
+        self.dataset_listbox.grid(row=3, column=0, columnspan=2, sticky='ew', pady=(0, 2))
         self.file_listboxes['dataset_files'] = self.dataset_listbox
         
         tk.Button(
@@ -397,7 +397,7 @@ class ProjectWizard(tk.Toplevel):
             text="Remove selected",
             command=lambda: self._remove_selected_files('dataset_files'),
             font=('Arial', 8)
-        ).grid(row=3, column=2, sticky='e', padx=5, pady=(0, 5))
+        ).grid(row=3, column=2, sticky='e', padx=5, pady=(0, 2))
         
         # Baseline code/models
         tk.Label(
@@ -406,7 +406,7 @@ class ProjectWizard(tk.Toplevel):
             font=('Arial', 11, 'bold'),
             bg=self.colors['bg_primary'],
             fg=self.colors['text_primary']
-        ).grid(row=4, column=0, sticky='w', pady=5)
+        ).grid(row=4, column=0, sticky='w', pady=2)
         
         self.baseline_label = tk.Label(
             files_frame,
@@ -427,14 +427,14 @@ class ProjectWizard(tk.Toplevel):
         
         self.baseline_listbox = tk.Listbox(
             files_frame,
-            height=3,
+            height=2,
             width=60,
             bg=self.colors['bg_primary'],
             fg=self.colors['text_secondary'],
             selectmode='extended',
             exportselection=False
         )
-        self.baseline_listbox.grid(row=5, column=0, columnspan=2, sticky='ew', pady=(0, 5))
+        self.baseline_listbox.grid(row=5, column=0, columnspan=2, sticky='ew', pady=(0, 2))
         self.file_listboxes['baseline_files'] = self.baseline_listbox
         
         tk.Button(
@@ -442,7 +442,7 @@ class ProjectWizard(tk.Toplevel):
             text="Remove selected",
             command=lambda: self._remove_selected_files('baseline_files'),
             font=('Arial', 8)
-        ).grid(row=5, column=2, sticky='e', padx=5, pady=(0, 5))
+        ).grid(row=5, column=2, sticky='e', padx=5, pady=(0, 2))
         
         container.columnconfigure(0, weight=1)
         
@@ -940,7 +940,7 @@ class RalphUI(tk.Tk):
         super().__init__()
         self.title("🚀 RALPH - AI Architecture Orchestrator")
         self.geometry(f"{width}x{height}")
-        self.minsize(1200, 750)
+        self.minsize(1200, 720)
         
         # Use provided orchestrator or create fallback
         if orchestrator is not None:
