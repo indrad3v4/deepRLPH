@@ -9,7 +9,7 @@ RALPH UI - 3-Step Project Creation Wizard + Enhanced Execution View
 ✅ UI-004: Review & Advanced with human-readable summary
 ✅ UI-005: Full KPI/metrics wiring into metadata
 ✅ UI-006: Projects tab with KPI column
-✅ UI-007: Execution view with filesystem tree
+✅ UI-007: Execution view with filesystem tree (future iteration)
 ✅ UI-008: Dark theme, keyboard shortcuts, validation
 
 Architecture: Tkinter + asyncio event loop integration
@@ -17,7 +17,7 @@ Deepseek integration for AI-powered project configuration
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+from tkinter import ttk, messagebox, filedialog, scrolledtext
 import logging
 import threading
 import asyncio
@@ -63,12 +63,11 @@ class ProjectWizard(tk.Toplevel):
 
     def __init__(self, parent, orchestrator: RalphOrchestrator, async_thread: AsyncioEventLoopThread):
         super().__init__(parent)
-        self.title("Create New Project")
+        self.title("Create New Project - RALPH Wizard")
         
         # Fullscreen modal
-        self.attributes('-fullscreen', False)  # Not actual fullscreen, but max window
-        width = int(self.winfo_screenwidth() * 0.9)
-        height = int(self.winfo_screenheight() * 0.9)
+        width = int(self.winfo_screenwidth() * 0.85)
+        height = int(self.winfo_screenheight() * 0.85)
         x = (self.winfo_screenwidth() - width) // 2
         y = (self.winfo_screenheight() - height) // 2
         self.geometry(f"{width}x{height}+{x}+{y}")
@@ -76,6 +75,10 @@ class ProjectWizard(tk.Toplevel):
         self.orchestrator = orchestrator
         self.async_thread = async_thread
         self.parent_ui = parent
+        
+        # Block parent window interaction
+        self.transient(parent)
+        self.grab_set()
         
         # Wizard state
         self.current_step = 0
@@ -493,7 +496,7 @@ Provide JSON with:
 - model_type (LSTM, GRU, Transformer, XGBoost, etc.)
 - ml_framework (PyTorch, TensorFlow, JAX, scikit-learn)
 - training_preset (batch_size, epochs, learning_rate)
-- eval_metric (R², RMSE, MAE, Accuracy, F1, AUC-ROC)
+- eval_metric (R², RMSE, MAE, Accuracy, F1, AUC-ROC, weighted_pearson)
 - metric_target (reasonable target value)
 - checklist (3-5 key implementation tasks)
 
@@ -820,8 +823,6 @@ Respond ONLY with valid JSON, no markdown."""
             self._create_project()
 
 
-# Rest of RalphUI class remains similar, with _new_project_dialog replaced:
-
 class RalphUI(tk.Tk):
     """Main RALPH UI with enhanced project wizard"""
     
@@ -927,18 +928,26 @@ class RalphUI(tk.Tk):
         ttk.Label(container, text="RALPH", font=('Arial', 42, 'bold')).pack(pady=20)
         ttk.Label(container, text="AI-Powered Multi-Agent Architecture Orchestrator", font=('Arial', 14)).pack(pady=10)
         
-        workflow = """1️⃣  Create Project → 2️⃣  Refine Task → 3️⃣  Execute Agents → 4️⃣  Validate Code
+        workflow = """Workflow:
+1️⃣  Create Project → 2️⃣  Refine Task → 3️⃣  Execute Agents → 4️⃣  Validate Code
 
+Features:
 🔄 Real-time execution with 4 parallel agents
-📊 Automatic code validation (black, mypy, pytest, pylint)
 🤖 ML Competition Support (Wundernn.io, Kaggle, etc.)
-🎯 Per-project KPI tracking"""
+📊 Automatic code validation (black, mypy, pytest, pylint)
+🎯 Per-project KPI tracking
+📝 3-step wizard with AI suggestions"""
         ttk.Label(container, text=workflow, font=('Arial', 11), justify='left').pack(pady=20)
         
         btn_frame = ttk.Frame(container)
         btn_frame.pack(pady=40, fill='x')
         ttk.Button(btn_frame, text="➕ New Project", command=self._new_project_dialog).pack(side='left', padx=10)
         ttk.Button(btn_frame, text="📂 View Projects", command=lambda: self.notebook.select(1)).pack(side='left', padx=10)
+        ttk.Button(btn_frame, text="📚 Documentation", command=self._show_docs).pack(side='left', padx=10)
+    
+    def _show_docs(self):
+        """Show documentation"""
+        messagebox.showinfo("Documentation", "Check README.md in the deepRLPH repository for full documentation.")
     
     def _create_projects_tab(self):
         """Projects management tab with KPI column (UI-006)"""
@@ -949,6 +958,7 @@ class RalphUI(tk.Tk):
         toolbar.pack(fill='x', padx=10, pady=10)
         ttk.Button(toolbar, text="➕ New Project", command=self._new_project_dialog).pack(side='left', padx=5)
         ttk.Button(toolbar, text="🔄 Refresh", command=self._refresh_projects).pack(side='left', padx=5)
+        ttk.Button(toolbar, text="🗑️ Delete Project", command=self._delete_project).pack(side='left', padx=5)
         
         # Treeview with KPI column
         self.projects_tree = ttk.Treeview(
@@ -1035,26 +1045,282 @@ class RalphUI(tk.Tk):
                 break
         
         logger.info(f"📁 Selected project: {project_name}")
+        messagebox.showinfo("Project Loaded", f"Project '{project_name}' loaded. Go to Task Refinement tab to continue.")
+    
+    def _delete_project(self):
+        """Delete selected project"""
+        selection = self.projects_tree.selection()
+        if not selection:
+            messagebox.showwarning("No Selection", "Please select a project to delete")
+            return
+        
+        item = selection[0]
+        project_name = self.projects_tree.item(item, 'text')
+        
+        if messagebox.askyesno("Confirm Delete", f"Delete project '{project_name}'? This cannot be undone."):
+            # Find project path and delete
+            projects = self.orchestrator.list_projects()
+            for proj in projects:
+                if proj['name'] == project_name:
+                    import shutil
+                    try:
+                        shutil.rmtree(proj['path'])
+                        messagebox.showinfo("Success", f"Project '{project_name}' deleted")
+                        self._refresh_projects()
+                    except Exception as e:
+                        messagebox.showerror("Error", f"Failed to delete project:\n{str(e)}")
+                    break
     
     def _create_task_refinement_tab(self):
-        """Task refinement tab (existing implementation)"""
-        # Keep existing implementation
-        pass
+        """Task refinement tab"""
+        refinement = ttk.Frame(self.notebook)
+        self.notebook.add(refinement, text="📝 Task Refinement")
+        
+        container = ttk.Frame(refinement)
+        container.pack(fill='both', expand=True, padx=20, pady=20)
+        
+        ttk.Label(container, text="Task Refinement", font=('Arial', 18, 'bold')).pack(pady=10)
+        ttk.Label(container, text="Describe your task and generate PRD", font=('Arial', 11)).pack(pady=5)
+        
+        # Task input
+        ttk.Label(container, text="Task Description:", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(20, 5))
+        self.task_text = scrolledtext.ScrolledText(container, height=10, width=100, font=('Consolas', 10))
+        self.task_text.pack(fill='both', expand=True, pady=5)
+        
+        # Buttons
+        btn_frame = ttk.Frame(container)
+        btn_frame.pack(pady=20)
+        ttk.Button(btn_frame, text="🧠 Refine Task & Generate PRD", command=self._refine_task).pack(side='left', padx=5)
+        ttk.Button(btn_frame, text="📄 View PRD", command=self._view_prd).pack(side='left', padx=5)
+        
+        # PRD preview
+        ttk.Label(container, text="PRD Preview:", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(20, 5))
+        self.prd_preview = scrolledtext.ScrolledText(container, height=15, width=100, font=('Consolas', 9))
+        self.prd_preview.pack(fill='both', expand=True, pady=5)
+    
+    def _refine_task(self):
+        """Refine task and generate PRD"""
+        if not self.current_project:
+            messagebox.showwarning("No Project", "Please select a project first")
+            return
+        
+        task = self.task_text.get('1.0', 'end').strip()
+        if not task:
+            messagebox.showwarning("Empty Task", "Please enter a task description")
+            return
+        
+        # Get project_id from current project
+        projects = self.orchestrator.list_projects()
+        project_id = None
+        for proj in projects:
+            if proj['name'] == self.current_project['name']:
+                project_id = proj['project_id']
+                break
+        
+        if not project_id:
+            messagebox.showerror("Error", "Could not find project ID")
+            return
+        
+        async def refine():
+            result = self.orchestrator.refine_task(project_id, task)
+            if result.get('status') == 'success':
+                self.current_prd = result['prd']
+                prd_summary = json.dumps(result['prd'], indent=2)
+                self.after(0, lambda: self.prd_preview.delete('1.0', 'end'))
+                self.after(0, lambda: self.prd_preview.insert('1.0', prd_summary))
+                self.after(0, lambda: messagebox.showinfo("Success", "PRD generated! Go to Execution tab to run agents."))
+            else:
+                self.after(0, lambda: messagebox.showerror("Error", result.get('error', 'Unknown error')))
+        
+        self.async_thread.submit(refine())
+        messagebox.showinfo("Processing", "Refining task... This may take 30-60 seconds.")
+    
+    def _view_prd(self):
+        """View full PRD in popup"""
+        if not self.current_prd:
+            messagebox.showinfo("No PRD", "No PRD generated yet. Refine a task first.")
+            return
+        
+        popup = tk.Toplevel(self)
+        popup.title("Full PRD")
+        popup.geometry("900x700")
+        
+        text = scrolledtext.ScrolledText(popup, font=('Consolas', 9))
+        text.pack(fill='both', expand=True, padx=10, pady=10)
+        text.insert('1.0', json.dumps(self.current_prd, indent=2))
     
     def _create_execution_tab(self):
-        """Execution tab (existing implementation, could add filesystem tree in future)"""
-        # Keep existing implementation
-        pass
+        """Execution tab"""
+        execution = ttk.Frame(self.notebook)
+        self.notebook.add(execution, text="⚙️ Execution")
+        
+        container = ttk.Frame(execution)
+        container.pack(fill='both', expand=True, padx=20, pady=20)
+        
+        ttk.Label(container, text="Execute Agents", font=('Arial', 18, 'bold')).pack(pady=10)
+        
+        # Controls
+        controls = ttk.Frame(container)
+        controls.pack(fill='x', pady=10)
+        
+        ttk.Label(controls, text="Agents:").pack(side='left', padx=5)
+        self.agents_spinbox = tk.Spinbox(controls, from_=1, to=8, width=5)
+        self.agents_spinbox.delete(0, 'end')
+        self.agents_spinbox.insert(0, '4')
+        self.agents_spinbox.pack(side='left', padx=5)
+        
+        self.exec_btn = ttk.Button(controls, text="▶️ Execute PRD Loop", command=self._execute_agents)
+        self.exec_btn.pack(side='left', padx=10)
+        
+        ttk.Button(controls, text="⏹️ Stop", command=self._stop_execution).pack(side='left', padx=5)
+        
+        # Progress
+        ttk.Label(container, text="Progress:", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(20, 5))
+        self.exec_progress = ttk.Progressbar(container, mode='determinate', length=800)
+        self.exec_progress.pack(fill='x', pady=5)
+        
+        self.exec_status_label = ttk.Label(container, text="Ready", font=('Arial', 10))
+        self.exec_status_label.pack(anchor='w', pady=5)
+        
+        # Logs
+        ttk.Label(container, text="Execution Logs:", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(20, 5))
+        self.exec_logs = scrolledtext.ScrolledText(container, height=20, width=100, font=('Consolas', 9))
+        self.exec_logs.pack(fill='both', expand=True, pady=5)
+    
+    def _execute_agents(self):
+        """Execute agents"""
+        if not self.current_prd:
+            messagebox.showwarning("No PRD", "Generate a PRD first in Task Refinement tab")
+            return
+        
+        if self.execution_running:
+            messagebox.showwarning("Already Running", "Execution already in progress")
+            return
+        
+        self.execution_running = True
+        self.exec_btn.config(state='disabled')
+        self.exec_logs.delete('1.0', 'end')
+        self.exec_progress['value'] = 0
+        
+        num_agents = int(self.agents_spinbox.get())
+        
+        async def log_cb(msg):
+            self.after(0, lambda: self.exec_logs.insert('end', msg + '\n'))
+            self.after(0, lambda: self.exec_logs.see('end'))
+        
+        async def progress_cb(pct):
+            self.after(0, lambda: setattr(self.exec_progress, 'value', pct))
+            self.after(0, lambda: self.exec_status_label.config(text=f"Progress: {pct:.1f}%"))
+        
+        async def execute():
+            result = await self.orchestrator.execute_prd_loop(
+                prd=self.current_prd,
+                num_agents=num_agents,
+                log_callback=log_cb,
+                progress_callback=progress_cb
+            )
+            
+            self.after(0, lambda: self.exec_btn.config(state='normal'))
+            self.execution_running = False
+            
+            if result.get('status') == 'success':
+                self.after(0, lambda: messagebox.showinfo("Success", "Execution completed! Check Validation tab."))
+            else:
+                self.after(0, lambda: messagebox.showerror("Error", result.get('error', 'Execution failed')))
+        
+        self.async_thread.submit(execute())
+    
+    def _stop_execution(self):
+        """Stop execution (placeholder)"""
+        messagebox.showinfo("Stop", "Execution stop not implemented yet")
     
     def _create_validation_tab(self):
-        """Validation tab (existing implementation)"""
-        # Keep existing implementation
-        pass
+        """Validation tab"""
+        validation = ttk.Frame(self.notebook)
+        self.notebook.add(validation, text="✅ Validation")
+        
+        container = ttk.Frame(validation)
+        container.pack(fill='both', expand=True, padx=20, pady=20)
+        
+        ttk.Label(container, text="Code Validation", font=('Arial', 18, 'bold')).pack(pady=10)
+        ttk.Label(container, text="Run black, mypy, pytest, pylint on generated code", font=('Arial', 11)).pack(pady=5)
+        
+        # Controls
+        controls = ttk.Frame(container)
+        controls.pack(fill='x', pady=20)
+        
+        ttk.Button(controls, text="🔍 Run Validation", command=self._run_validation).pack(side='left', padx=5)
+        ttk.Button(controls, text="📊 View Report", command=self._view_validation_report).pack(side='left', padx=5)
+        
+        # Results
+        ttk.Label(container, text="Validation Results:", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(20, 5))
+        self.validation_text = scrolledtext.ScrolledText(container, height=25, width=100, font=('Consolas', 9))
+        self.validation_text.pack(fill='both', expand=True, pady=5)
+    
+    def _run_validation(self):
+        """Run code validation"""
+        messagebox.showinfo("Validation", "Validation not fully implemented yet. Check execution logs for code quality.")
+    
+    def _view_validation_report(self):
+        """View validation report"""
+        messagebox.showinfo("Report", "No validation report available yet.")
     
     def _create_logs_tab(self):
-        """Logs tab (existing implementation)"""
-        # Keep existing implementation
-        pass
+        """Logs tab"""
+        logs = ttk.Frame(self.notebook)
+        self.notebook.add(logs, text="📋 Logs")
+        
+        container = ttk.Frame(logs)
+        container.pack(fill='both', expand=True, padx=20, pady=20)
+        
+        ttk.Label(container, text="Orchestrator Logs", font=('Arial', 18, 'bold')).pack(pady=10)
+        
+        # Controls
+        controls = ttk.Frame(container)
+        controls.pack(fill='x', pady=10)
+        
+        ttk.Button(controls, text="🔄 Refresh", command=self._refresh_logs).pack(side='left', padx=5)
+        ttk.Button(controls, text="🗑️ Clear", command=self._clear_logs).pack(side='left', padx=5)
+        ttk.Button(controls, text="💾 Save to File", command=self._save_logs).pack(side='left', padx=5)
+        
+        # Logs display
+        self.logs_text = scrolledtext.ScrolledText(container, height=30, width=120, font=('Consolas', 9))
+        self.logs_text.pack(fill='both', expand=True, pady=10)
+        
+        self._refresh_logs()
+    
+    def _refresh_logs(self):
+        """Refresh logs display"""
+        self.logs_text.delete('1.0', 'end')
+        logs = self.orchestrator.get_execution_log()
+        for log in logs:
+            self.logs_text.insert('end', log + '\n')
+        self.logs_text.see('end')
+    
+    def _clear_logs(self):
+        """Clear logs"""
+        self.orchestrator.clear_execution_log()
+        self._refresh_logs()
+    
+    def _save_logs(self):
+        """Save logs to file"""
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".txt",
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")]
+        )
+        if filename:
+            with open(filename, 'w') as f:
+                logs = self.orchestrator.get_execution_log()
+                f.write('\n'.join(logs))
+            messagebox.showinfo("Success", f"Logs saved to {filename}")
 
-# Note: Other methods from original setup_window.py remain unchanged
-# This file focuses on UI-001 to UI-005 wizard implementation
+
+if __name__ == "__main__":
+    # Test UI standalone
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    
+    app = RalphUI()
+    app.mainloop()
