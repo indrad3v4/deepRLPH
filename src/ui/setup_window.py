@@ -105,6 +105,10 @@ class ProjectWizard(tk.Toplevel):
             'text_secondary': '#cbd5e1',
         }
         
+        # File picker UI state
+        self.file_listboxes: Dict[str, tk.Listbox] = {}
+        self.file_labels: Dict[str, tk.Label] = {}
+        
         self.configure(bg=self.colors['bg_primary'])
         
         # Keyboard shortcuts
@@ -322,6 +326,7 @@ class ProjectWizard(tk.Toplevel):
             fg=self.colors['text_secondary']
         )
         self.doc_label.grid(row=0, column=1, sticky='w', padx=10)
+        self.file_labels['doc_files'] = self.doc_label
         
         tk.Button(
             files_frame,
@@ -330,6 +335,25 @@ class ProjectWizard(tk.Toplevel):
             font=('Arial', 9)
         ).grid(row=0, column=2, padx=5)
         
+        self.doc_listbox = tk.Listbox(
+            files_frame,
+            height=3,
+            width=60,
+            bg=self.colors['bg_primary'],
+            fg=self.colors['text_secondary'],
+            selectmode='extended',
+            exportselection=False
+        )
+        self.doc_listbox.grid(row=1, column=0, columnspan=2, sticky='ew', pady=(0, 5))
+        self.file_listboxes['doc_files'] = self.doc_listbox
+        
+        tk.Button(
+            files_frame,
+            text="Remove selected",
+            command=lambda: self._remove_selected_files('doc_files'),
+            font=('Arial', 8)
+        ).grid(row=1, column=2, sticky='e', padx=5, pady=(0, 5))
+        
         # Dataset files
         tk.Label(
             files_frame,
@@ -337,7 +361,7 @@ class ProjectWizard(tk.Toplevel):
             font=('Arial', 11, 'bold'),
             bg=self.colors['bg_primary'],
             fg=self.colors['text_primary']
-        ).grid(row=1, column=0, sticky='w', pady=5)
+        ).grid(row=2, column=0, sticky='w', pady=5)
         
         self.dataset_label = tk.Label(
             files_frame,
@@ -346,14 +370,34 @@ class ProjectWizard(tk.Toplevel):
             bg=self.colors['bg_primary'],
             fg=self.colors['text_secondary']
         )
-        self.dataset_label.grid(row=1, column=1, sticky='w', padx=10)
+        self.dataset_label.grid(row=2, column=1, sticky='w', padx=10)
+        self.file_labels['dataset_files'] = self.dataset_label
         
         tk.Button(
             files_frame,
             text="Browse...",
             command=lambda: self._browse_files('dataset_files', self.dataset_label),
             font=('Arial', 9)
-        ).grid(row=1, column=2, padx=5)
+        ).grid(row=2, column=2, padx=5)
+        
+        self.dataset_listbox = tk.Listbox(
+            files_frame,
+            height=3,
+            width=60,
+            bg=self.colors['bg_primary'],
+            fg=self.colors['text_secondary'],
+            selectmode='extended',
+            exportselection=False
+        )
+        self.dataset_listbox.grid(row=3, column=0, columnspan=2, sticky='ew', pady=(0, 5))
+        self.file_listboxes['dataset_files'] = self.dataset_listbox
+        
+        tk.Button(
+            files_frame,
+            text="Remove selected",
+            command=lambda: self._remove_selected_files('dataset_files'),
+            font=('Arial', 8)
+        ).grid(row=3, column=2, sticky='e', padx=5, pady=(0, 5))
         
         # Baseline code/models
         tk.Label(
@@ -362,7 +406,7 @@ class ProjectWizard(tk.Toplevel):
             font=('Arial', 11, 'bold'),
             bg=self.colors['bg_primary'],
             fg=self.colors['text_primary']
-        ).grid(row=2, column=0, sticky='w', pady=5)
+        ).grid(row=4, column=0, sticky='w', pady=5)
         
         self.baseline_label = tk.Label(
             files_frame,
@@ -371,24 +415,49 @@ class ProjectWizard(tk.Toplevel):
             bg=self.colors['bg_primary'],
             fg=self.colors['text_secondary']
         )
-        self.baseline_label.grid(row=2, column=1, sticky='w', padx=10)
+        self.baseline_label.grid(row=4, column=1, sticky='w', padx=10)
+        self.file_labels['baseline_files'] = self.baseline_label
         
         tk.Button(
             files_frame,
             text="Browse...",
             command=lambda: self._browse_files('baseline_files', self.baseline_label),
             font=('Arial', 9)
-        ).grid(row=2, column=2, padx=5)
+        ).grid(row=4, column=2, padx=5)
+        
+        self.baseline_listbox = tk.Listbox(
+            files_frame,
+            height=3,
+            width=60,
+            bg=self.colors['bg_primary'],
+            fg=self.colors['text_secondary'],
+            selectmode='extended',
+            exportselection=False
+        )
+        self.baseline_listbox.grid(row=5, column=0, columnspan=2, sticky='ew', pady=(0, 5))
+        self.file_listboxes['baseline_files'] = self.baseline_listbox
+        
+        tk.Button(
+            files_frame,
+            text="Remove selected",
+            command=lambda: self._remove_selected_files('baseline_files'),
+            font=('Arial', 8)
+        ).grid(row=5, column=2, sticky='e', padx=5, pady=(0, 5))
         
         container.columnconfigure(0, weight=1)
+        
+        # Initial refresh of file lists based on current project_data
+        for key in ('doc_files', 'dataset_files', 'baseline_files'):
+            self._refresh_file_list(key)
     
     def _browse_files(self, key: str, label: tk.Label):
-        """Browse and select files"""
+        """Browse and select files (append to existing selection)."""
         filetypes = [
             ("All files", "*"),
             ("Text / Markdown", "*.txt *.md"),
             ("PDF", "*.pdf"),
             ("Parquet", "*.parquet"),
+            ("ONNX model", "*.onnx"),
             ("Python", "*.py"),
         ]
         files = filedialog.askopenfilenames(
@@ -396,8 +465,42 @@ class ProjectWizard(tk.Toplevel):
             filetypes=filetypes,
         )
         if files:
-            self.project_data[key] = list(files)
-            label.config(text=f"{len(files)} file(s) selected", fg=self.colors['accent_green'])
+            existing = list(self.project_data.get(key, []))
+            for fpath in files:
+                if fpath not in existing:
+                    existing.append(fpath)
+            self.project_data[key] = existing
+            self._refresh_file_list(key)
+    
+    def _refresh_file_list(self, key: str):
+        """Sync listbox and label for a given key from project_data."""
+        files = self.project_data.get(key, []) or []
+        listbox = self.file_listboxes.get(key)
+        label = self.file_labels.get(key)
+        if listbox is None or label is None:
+            return
+        listbox.delete(0, 'end')
+        for path in files:
+            listbox.insert('end', os.path.basename(path))
+        label.config(
+            text=f"{len(files)} file(s) selected",
+            fg=self.colors['accent_green'] if files else self.colors['text_secondary'],
+        )
+    
+    def _remove_selected_files(self, key: str):
+        """Remove selected entries from a file list."""
+        listbox = self.file_listboxes.get(key)
+        if listbox is None:
+            return
+        selection = list(listbox.curselection())
+        if not selection:
+            return
+        selection_set = set(selection)
+        current_files = self.project_data.get(key, []) or []
+        self.project_data[key] = [
+            f for idx, f in enumerate(current_files) if idx not in selection_set
+        ]
+        self._refresh_file_list(key)
     
     def _create_step2_ai_suggestions(self):
         """Step 2: AI Suggestions (UI-003)"""
