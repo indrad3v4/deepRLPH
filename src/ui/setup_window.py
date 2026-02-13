@@ -65,11 +65,15 @@ class ProjectWizard(tk.Toplevel):
         super().__init__(parent)
         self.title("Create New Project - RALPH Wizard")
         
-        # Fullscreen modal
-        width = int(self.winfo_screenwidth() * 0.85)
-        height = int(self.winfo_screenheight() * 0.85)
-        x = (self.winfo_screenwidth() - width) // 2
-        y = (self.winfo_screenheight() - height) // 2
+        # Fullscreen modal (clamped so footer stays visible on small screens)
+        screen_w = self.winfo_screenwidth()
+        screen_h = self.winfo_screenheight()
+        safe_margin = 140  # space for OS menu bar + dock on macOS
+        max_height = max(650, screen_h - safe_margin)
+        height = min(int(screen_h * 0.85), max_height)
+        width = int(screen_w * 0.85)
+        x = (screen_w - width) // 2
+        y = max(20, (screen_h - height) // 2)
         self.geometry(f"{width}x{height}+{x}+{y}")
         
         self.orchestrator = orchestrator
