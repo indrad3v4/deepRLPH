@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-execution_engine.py - Sequential Ralph Loop (ENHANCED)
+execution_engine.py - Multi-agent Ralph Loop (ENHANCED)
 
 Adds:
+- Asyncio-based worker pool with shared work queue (work-stealing style)
+- Per-agent DeepSeek system prompts from AgentProfile
+- Story-level KPI "rewards" recorded back into AgentProfileStore
 - BE-008: JSONL trace logging for all execution events
 - BE-009: Multi-pattern metric extraction
-- Metric extraction and KPI-oriented status
 """
 
 import asyncio
@@ -18,22 +20,24 @@ from datetime import datetime
 import re
 import math
 
+from agent_profiles import AgentProfileStore, AgentProfile
+
 logger = logging.getLogger("ExecutionEngine")
 
 
 class ExecutionEngine:
-    """Sequential Ralph Loop Engine with domain metrics + trace logging.
+    """Multi-agent Ralph Loop Engine with domain metrics + trace logging.
 
     Responsibilities:
-    1. Pick next story (status == "todo")
-    2. Call Deepseek to implement
+    1. Distribute TODO stories across N asyncio agents via a shared work queue
+    2. For each story: call DeepSeek with per-agent system+user prompts
     3. Save generated code
     4. Run verification command
-    5. **BE-009: Extract metrics using multiple regex patterns**
-    6. Update prd.json and metrics.json
-    7. **BE-008: Log all events to JSONL trace**
+    5. **BE-009:** Extract metrics using multiple regex patterns
+    6. Update prd.json and metrics_history.json
+    7. **BE-008:** Log all events to JSONL trace
     8. Append to progress.txt
-    9. Repeat until all pass or time/iterations exhausted
+    9. Record per-story reward into AgentProfileStore (RL-like learning)
     """
 
     def __init__(
@@ -47,7 +51,7 @@ class ExecutionEngine:
         self.output_dir = self.workspace_dir / "output" / "generated_code"
         self.prd_file = self.project_dir / "prd.json"
         self.progress_file = self.project_dir / "progress.txt"
-        # NEW: per-project metric config + history
+        # Per-project metric config + history
         self.metrics_config_file = self.project_dir / "metrics_config.json"
         self.metrics_history_file = self.project_dir / "metrics_history.json"
 
@@ -57,12 +61,17 @@ class ExecutionEngine:
         # BE-008: Trace logger (set by orchestrator)
         self.trace_logger = None
 
+        # PR-Agents: persistent per-project agent profiles
+        self.agent_profile_store: Optional[AgentProfileStore] = AgentProfileStore.load_for_project(
+            self.project_dir
+        )
+
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         # Load metric config if exists
         self.metric_config = self._load_metrics_config()
 
-        logger.info("✅ ExecutionEngine initialized (Sequential Ralph Loop + metrics + traces)")
+        logger.info("✅ ExecutionEngine initialized (Multi-agent Ralph Loop + metrics + traces)")
         logger.info(f"   Project: {self.project_dir}")
         logger.info(f"   Output: {self.output_dir}")
         if self.metric_config:
@@ -85,14 +94,15 @@ class ExecutionEngine:
         progress_callback: Optional[Callable] = None,
         log_callback: Optional[Callable] = None,
     ) -> Dict[str, Any]:
-        """Run the Ralph loop until stories complete.
+        """Run the multi-agent Ralph loop until stories complete.
 
-        NOTE: prd_partitions is currently ignored; we operate on prd.json.
+        NOTE: prd_partitions is currently ignored; we operate on prd.json and
+        distribute TODO stories dynamically via a shared asyncio.Queue.
         """
         self.log_callback = log_callback or self._default_log
         self.progress_callback = progress_callback or self._default_progress
 
-        await self._log("🚀 Starting Sequential Ralph Loop")
+        await self._log("🚀 Starting Multi-agent Ralph Loop (asyncio pool)")
         await self._log(f"   Execution ID: {execution_id}")
         await self._log("")
 
@@ -100,133 +110,294 @@ class ExecutionEngine:
         if not prd:
             return {"status": "error", "error": "PRD file not found or empty"}
 
-        total_stories = len(prd.get("user_stories", []))
+        all_stories = prd.get("user_stories", [])
+        todo_stories = [s for s in all_stories if s.get("status") == "todo"]
+        total_stories = len(all_stories)
+        total_todo = len(todo_stories)
+
         await self._log(f"   Total stories: {total_stories}")
+        await self._log(f"   TODO stories: {total_todo}")
         await self._log("")
 
-        # BE-008: Log agent start (single agent for sequential loop)
-        if self.trace_logger:
-            self.trace_logger.agent_start("agent_1", assigned_items=total_stories)
+        if total_todo == 0:
+            await self._progress(100)
+            return {
+                "status": "success",
+                "execution_id": execution_id,
+                "completed_items": [],
+                "failed_items": [],
+                "total_iterations": 0,
+                "agents": {},
+            }
 
-        iteration = 0
-        max_iterations = max(total_stories * 2, 1)
+        # ------------------------------------------------------------------
+        # Initialize / ensure agent profiles
+        # ------------------------------------------------------------------
+        if not self.agent_profile_store:
+            self.agent_profile_store = AgentProfileStore.load_for_project(self.project_dir)
+
+        store = self.agent_profile_store
+        assert store is not None  # for type checkers
+
+        # Ensure we have at least num_agents profiles: agent_1, agent_2, ...
+        for i in range(1, max(1, num_agents) + 1):
+            agent_id = f"agent_{i}"
+            if store.get(agent_id) is None:
+                metric_focus = self.metric_config.get("name") if self.metric_config else None
+                profile = AgentProfile(
+                    id=agent_id,
+                    name=f"Agent {i}",
+                    role="Generalist implementation agent",
+                    expertise=["backend", "tests", "refactoring"],
+                    target_files=["src/"],
+                    metric_focus=metric_focus,
+                )
+                store.upsert_agent(profile)
+
+        agent_ids = [f"agent_{i}" for i in range(1, max(1, num_agents) + 1)]
+        agent_profiles: Dict[str, AgentProfile] = {
+            aid: store.get(aid) for aid in agent_ids if store.get(aid) is not None
+        }
+
+        # Compose per-agent system prompts (orchestrator + profile blob)
+        system_prompts: Dict[str, str] = {}
+        for aid, profile in agent_profiles.items():
+            system_prompts[aid] = (
+                f"{orchestrator_prompt}\n\n" f"{profile.to_prompt_blob()}"
+            )
+
+        # ------------------------------------------------------------------
+        # Shared work queue with recommended agent for potential skill routing
+        # ------------------------------------------------------------------
+        queue: asyncio.Queue = asyncio.Queue()
+
+        # Assign recommended agent in simple round-robin for now
+        jobs: List[Dict[str, Any]] = []
+        for idx, story in enumerate(todo_stories):
+            iteration = idx + 1
+            recommended_agent = agent_ids[idx % len(agent_ids)] if agent_ids else "agent_1"
+            jobs.append(
+                {
+                    "story": story,
+                    "iteration": iteration,
+                    "recommended_agent": recommended_agent,
+                }
+            )
+            await queue.put(jobs[-1])
+
+        # For trace logger: how many items "назначены" каждому агенту
+        if self.trace_logger:
+            assigned_counts: Dict[str, int] = {aid: 0 for aid in agent_ids}
+            for job in jobs:
+                assigned_counts[job["recommended_agent"]] += 1
+            for aid in agent_ids:
+                self.trace_logger.agent_start(aid, assigned_items=assigned_counts.get(aid, 0))
+
         completed_items: List[Dict[str, Any]] = []
         failed_items: List[Dict[str, Any]] = []
+        per_agent_completed: Dict[str, List[Dict[str, Any]]] = {aid: [] for aid in agent_ids}
+        per_agent_failed: Dict[str, List[Dict[str, Any]]] = {aid: [] for aid in agent_ids}
+        completed_count = 0
 
-        while iteration < max_iterations:
-            iteration += 1
+        loop_start = datetime.now()
 
-            story = self._pick_next_story(prd)
-            if not story:
-                await self._log("✅ All stories marked done/failed. Ralph loop finished.")
-                break
+        # ------------------------------------------------------------------
+        # Worker coroutine
+        # ------------------------------------------------------------------
 
-            story_id = story.get("id", f"story-{iteration}")
-            story_title = story.get("title", "Untitled")
+        async def worker(agent_id: str) -> None:
+            nonlocal completed_count
+            profile = agent_profiles[agent_id]
+            system_prompt = system_prompts[agent_id]
+            agent_start_time = datetime.now()
 
-            await self._log(f"📌 Iteration {iteration}: {story_id} - {story_title}")
-            await self._log("")
+            while True:
+                job = await queue.get()
+                if job is None:
+                    queue.task_done()
+                    break
 
-            # BE-008: Log item start
-            if self.trace_logger:
-                self.trace_logger.item_start("agent_1", story_id, story_title)
+                story = job["story"]
+                iteration = job["iteration"]
+                story_id = story.get("id", f"story-{iteration}")
+                story_title = story.get("title", "Untitled")
 
-            start_time = datetime.now()
-            result = await self._execute_story(
-                story=story,
-                orchestrator_prompt=orchestrator_prompt,
-                iteration=iteration,
-            )
-            duration = (datetime.now() - start_time).total_seconds()
+                await self._log(
+                    f"📌 [agent={agent_id}] Iteration {iteration}: {story_id} - {story_title}"
+                )
 
-            completed_count = len(
-                [s for s in prd["user_stories"] if s.get("status") == "done"]
-            )
-            progress = (completed_count / total_stories) * 100 if total_stories else 100
-            await self._progress(progress)
+                # BE-008: Log item start
+                if self.trace_logger:
+                    self.trace_logger.item_start(agent_id, story_id, story_title)
 
-            if result["status"] == "success":
-                completed_items.append(
-                    {
+                start_time = datetime.now()
+                result = await self._execute_story(
+                    story=story,
+                    orchestrator_prompt=system_prompt,
+                    iteration=iteration,
+                    agent_id=agent_id,
+                    agent_profile=profile,
+                )
+                duration = (datetime.now() - start_time).total_seconds()
+
+                metric_value = result.get("metric_value")
+
+                if result["status"] == "success":
+                    item_record = {
                         "id": story_id,
                         "title": story_title,
                         "iteration": iteration,
                         "files": result.get("files", []),
+                        "agent_id": agent_id,
                     }
-                )
-                await self._log(f"   ✅ Story {story_id} PASSED")
+                    completed_items.append(item_record)
+                    per_agent_completed[agent_id].append(item_record)
+                    completed_count += 1
 
-                # BE-008: Log item complete
-                if self.trace_logger:
-                    self.trace_logger.item_complete(
-                        "agent_1",
-                        story_id,
-                        duration_seconds=duration,
-                        files_created=result.get("files", [])
+                    await self._log(
+                        f"   ✅ [agent={agent_id}] Story {story_id} PASSED"
                     )
-            else:
-                failed_items.append(
-                    {
+
+                    # BE-008: Log item complete
+                    if self.trace_logger:
+                        self.trace_logger.item_complete(
+                            agent_id,
+                            story_id,
+                            duration_seconds=duration,
+                            files_created=result.get("files", []),
+                        )
+
+                    # RL-like reward: success → positive, scaled by metric if present
+                    reward = 1.0
+                    if metric_value is not None and self.metric_config:
+                        target = float(self.metric_config.get("target", 0.0))
+                        reward = metric_value - target
+
+                    if self.agent_profile_store:
+                        summary = (
+                            f"Story {story_id} succeeded by {agent_id}, "
+                            f"reward={reward:.4f}, metric={metric_value}"
+                        )
+                        self.agent_profile_store.record_learning(
+                            agent_id,
+                            summary,
+                            metrics={
+                                "story_id": story_id,
+                                "status": "success",
+                                "metric_value": metric_value,
+                                "reward": reward,
+                            },
+                        )
+                else:
+                    error_msg = result.get("error", "Unknown error")
+                    item_record = {
                         "id": story_id,
                         "title": story_title,
                         "iteration": iteration,
-                        "error": result.get("error", "Unknown error"),
+                        "error": error_msg,
+                        "agent_id": agent_id,
                     }
-                )
-                await self._log(
-                    f"   ❌ Story {story_id} FAILED: {result.get('error', 'Unknown')}"
-                )
+                    failed_items.append(item_record)
+                    per_agent_failed[agent_id].append(item_record)
 
-                # BE-008: Log item fail
-                if self.trace_logger:
-                    self.trace_logger.item_fail(
-                        "agent_1",
-                        story_id,
-                        error_message=result.get('error', 'Unknown'),
-                        attempt=story.get('attempts', 1)
-                    )
-
-            await self._log("")
-
-            remaining = len(
-                [s for s in prd["user_stories"] if s.get("status") == "todo"]
-            )
-            if remaining == 0:
-                await self._log("🎉 No remaining TODO stories.")
-                break
-
-            # KPI: if metric target configured, log latest metric each loop
-            if self.metric_config:
-                latest_metric = self._get_latest_metric_value()
-                if latest_metric is not None:
                     await self._log(
-                        f"   📈 Current {self.metric_config['name']}: {latest_metric:.4f}"
+                        f"   ❌ [agent={agent_id}] Story {story_id} FAILED: {error_msg}"
                     )
 
-                    # BE-008: Log metric update
+                    # BE-008: Log item fail
                     if self.trace_logger:
-                        self.trace_logger.metric_update(
-                            "agent_1",
-                            self.metric_config['name'],
-                            latest_metric,
-                            target=float(self.metric_config.get('target', 0.0))
+                        self.trace_logger.item_fail(
+                            agent_id,
+                            story_id,
+                            error_message=error_msg,
+                            attempt=story.get("attempts", 1),
                         )
 
-        # BE-008: Log agent finish
-        if self.trace_logger:
-            self.trace_logger.agent_finish(
-                "agent_1",
-                completed_items=len(completed_items),
-                failed_items=len(failed_items),
-                duration_seconds=duration
-            )
+                    # RL-like reward: failure → negative
+                    if self.agent_profile_store:
+                        reward = -1.0
+                        summary = (
+                            f"Story {story_id} failed by {agent_id}, "
+                            f"reward={reward:.4f}, error={error_msg[:120]}"
+                        )
+                        self.agent_profile_store.record_learning(
+                            agent_id,
+                            summary,
+                            metrics={
+                                "story_id": story_id,
+                                "status": "failed",
+                                "metric_value": metric_value,
+                                "reward": reward,
+                            },
+                        )
+
+                # Update global progress (based on completed_count vs total_todo)
+                progress = (
+                    (completed_count / total_todo) * 100 if total_todo else 100
+                )
+                await self._progress(progress)
+
+                # KPI: if metric target configured, log latest metric
+                if self.metric_config:
+                    latest_metric = self._get_latest_metric_value()
+                    if latest_metric is not None:
+                        await self._log(
+                            f"   📈 [agent={agent_id}] Current {self.metric_config['name']}: "
+                            f"{latest_metric:.4f}"
+                        )
+
+                        if self.trace_logger:
+                            self.trace_logger.metric_update(
+                                agent_id,
+                                self.metric_config["name"],
+                                latest_metric,
+                                target=float(
+                                    self.metric_config.get("target", 0.0)
+                                ),
+                            )
+
+                await self._log("")
+                queue.task_done()
+
+            # Agent finished all available work
+            agent_duration = (datetime.now() - agent_start_time).total_seconds()
+            if self.trace_logger:
+                self.trace_logger.agent_finish(
+                    agent_id,
+                    completed_items=len(per_agent_completed[agent_id]),
+                    failed_items=len(per_agent_failed[agent_id]),
+                    duration_seconds=agent_duration,
+                )
+
+        # Spawn workers
+        workers = [
+            asyncio.create_task(worker(aid)) for aid in agent_ids
+        ]
+
+        # Add sentinel None jobs so each worker can exit cleanly
+        for _ in agent_ids:
+            await queue.put(None)
+
+        # Wait for all work to be processed
+        await queue.join()
+        await asyncio.gather(*workers, return_exceptions=True)
+
+        loop_duration = (datetime.now() - loop_start).total_seconds()
 
         await self._progress(100)
         await self._log("")
         await self._log("📊 Execution Summary:")
         await self._log(f"   ✅ Completed: {len(completed_items)}")
         await self._log(f"   ❌ Failed: {len(failed_items)}")
-        await self._log(f"   🔄 Iterations: {iteration}")
+        await self._log(f"   🔄 Stories attempted: {len(completed_items) + len(failed_items)}")
+        await self._log(f"   ⏱  Duration: {loop_duration:.1f}s")
+
+        # Persist updated agent profiles (with new learnings)
+        if self.agent_profile_store:
+            try:
+                self.agent_profile_store.save()
+            except Exception as e:  # pragma: no cover
+                logger.error("Error saving agent profiles: %s", e)
 
         status: str
         if failed_items and not completed_items:
@@ -236,22 +407,25 @@ class ExecutionEngine:
         else:
             status = "success"
 
+        agents_summary: Dict[str, Any] = {}
+        for aid in agent_ids:
+            agents_summary[aid] = {
+                "completed_items": per_agent_completed[aid],
+                "failed_items": per_agent_failed[aid],
+                "profile_id": aid,
+            }
+
         return {
             "status": status,
             "execution_id": execution_id,
             "completed_items": completed_items,
             "failed_items": failed_items,
-            "total_iterations": iteration,
-            "agents": {
-                "agent_1": {
-                    "completed_items": completed_items,
-                    "failed_items": failed_items,
-                }
-            },
+            "total_iterations": len(completed_items) + len(failed_items),
+            "agents": agents_summary,
         }
 
     # ------------------------------------------------------------------
-    # Story execution (unchanged from original except metric logging)
+    # Story execution (extended with agent info + metric return)
     # ------------------------------------------------------------------
 
     async def _execute_story(
@@ -259,30 +433,52 @@ class ExecutionEngine:
         story: Dict[str, Any],
         orchestrator_prompt: str,
         iteration: int,
+        agent_id: str,
+        agent_profile: AgentProfile,
     ) -> Dict[str, Any]:
         story_id = story.get("id", "unknown")
         try:
-            await self._log("   🤖 Calling Deepseek to generate code...")
+            await self._log(
+                f"   🤖 [agent={agent_id}] Calling DeepSeek to generate code..."
+            )
 
-            user_prompt = self._create_story_prompt(story)
+            base_user_prompt = self._create_story_prompt(story)
+
+            # Enrich user prompt with agent assignment for better specialization
+            user_prompt = (
+                f"You are the assigned agent for this story.\n"
+                f"Agent ID: {agent_id}\n"
+                f"Agent Name: {agent_profile.name}\n"
+                f"Role: {agent_profile.role}\n"
+                f"Primary KPI focus: {agent_profile.metric_focus or 'project-level success'}.\n"
+                f"This specific story is currently assigned to you; implement it according to your profile.\n\n"
+                f"{base_user_prompt}"
+            )
 
             response = await self._call_deepseek(
                 system_prompt=orchestrator_prompt,
                 user_prompt=user_prompt,
             )
 
-            await self._log(f"   💬 Received response ({len(response)} chars)")
+            await self._log(
+                f"   💬 [agent={agent_id}] Received response ({len(response)} chars)"
+            )
 
             files = await self._save_code(story_id, response, iteration)
-            await self._log(f"   💾 Saved {len(files)} file(s)")
+            await self._log(
+                f"   💾 [agent={agent_id}] Saved {len(files)} file(s)"
+            )
 
             verification = story.get("verification", "")
+            metric_value: Optional[float] = None
+
             if verification and verification.strip():
-                await self._log("   🧪 Running verification...")
+                await self._log(
+                    f"   🧪 [agent={agent_id}] Running verification..."
+                )
                 verify_result = await self._run_verification(verification)
 
                 # Metric-aware evaluation (BE-009: multi-pattern extraction)
-                metric_value: Optional[float] = None
                 metric_pass = True
                 if self.metric_config and verify_result.get("output"):
                     metric_value = self._extract_metric(
@@ -299,10 +495,16 @@ class ExecutionEngine:
                     await self._append_progress(
                         story_id=story_id,
                         status="success",
-                        learning=
-                        f"Verification passed. Metric: {metric_value if metric_value is not None else 'N/A'}",
+                        learning=(
+                            f"[agent={agent_id}] Verification passed. "
+                            f"Metric: {metric_value if metric_value is not None else 'N/A'}"
+                        ),
                     )
-                    return {"status": "success", "files": files}
+                    return {
+                        "status": "success",
+                        "files": files,
+                        "metric_value": metric_value,
+                    }
 
                 # Verification or metric failed
                 error_msg = verify_result.get("error", "Verification failed")
@@ -324,30 +526,42 @@ class ExecutionEngine:
                 await self._append_progress(
                     story_id=story_id,
                     status="failed",
-                    learning=error_msg,
+                    learning=f"[agent={agent_id}] {error_msg}",
                 )
-                return {"status": "failed", "error": error_msg, "files": files}
+                return {
+                    "status": "failed",
+                    "error": error_msg,
+                    "files": files,
+                    "metric_value": metric_value,
+                }
 
             # No verification => mark as done but log warning
             await self._log(
-                "   ⚠️  No verification command specified, marking story as done"
+                f"   ⚠️  [agent={agent_id}] No verification command specified, marking story as done"
             )
             self._update_prd_story(story_id, status="done", passes=True)
             await self._append_progress(
                 story_id=story_id,
                 status="success",
-                learning=f"Completed {story.get('title', 'story')} (no verification).",
+                learning=(
+                    f"[agent={agent_id}] Completed {story.get('title', 'story')} "
+                    f"(no verification)."
+                ),
             )
-            return {"status": "success", "files": files}
+            return {"status": "success", "files": files, "metric_value": metric_value}
 
         except Exception as e:  # pragma: no cover - defensive
             logger.exception("Error executing story %s", story_id)
-            await self._log(f"   ❌ Error: {str(e)}")
+            await self._log(f"   ❌ [agent={agent_id}] Error: {str(e)}")
             self._update_prd_story(story_id, status="failed", passes=False)
-            return {"status": "error", "error": str(e)}
+            return {
+                "status": "error",
+                "error": str(e),
+                "metric_value": metric_value,
+            }
 
     # ------------------------------------------------------------------
-    # Deepseek + code saving (unchanged)
+    # DeepSeek + code saving (unchanged apart from logging prefixes)
     # ------------------------------------------------------------------
 
     def _create_story_prompt(self, story: Dict[str, Any]) -> str:
@@ -497,12 +711,6 @@ Instructions:
             logger.error("Error loading PRD: %s", e)
             return None
 
-    def _pick_next_story(self, prd: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        for story in prd.get("user_stories", []):
-            if story.get("status") == "todo":
-                return story
-        return None
-
     def _update_prd_story(
         self,
         story_id: str,
@@ -609,7 +817,11 @@ Instructions:
                         try:
                             raw = match.group(group_name)
                         except (IndexError, AttributeError):
-                            raw = match.group(1) if match.lastindex and match.lastindex >= 1 else None
+                            raw = (
+                                match.group(1)
+                                if match.lastindex and match.lastindex >= 1
+                                else None
+                            )
                         
                         if raw is None:
                             continue
@@ -618,7 +830,9 @@ Instructions:
                         if not math.isnan(value) and not math.isinf(value):
                             logger.debug(
                                 "Extracted metric using pattern %s: %s = %f",
-                                regex[:50], config.get("name"), value
+                                regex[:50],
+                                config.get("name"),
+                                value,
                             )
                             return value
                 except Exception as e:
@@ -628,7 +842,8 @@ Instructions:
             # No pattern matched
             logger.warning(
                 "No pattern matched for metric %s in output (tried %d patterns)",
-                config.get("name"), len(config["patterns"])
+                config.get("name"),
+                len(config["patterns"]),
             )
             return None
         
@@ -641,7 +856,11 @@ Instructions:
             match = re.search(pattern, output)
             if not match:
                 return None
-            raw = match.group("value") if "value" in match.groupdict() else match.group(1)
+            raw = (
+                match.group("value")
+                if "value" in match.groupdict()
+                else match.group(1)
+            )
             value = float(raw)
             if math.isnan(value) or math.isinf(value):
                 return None
