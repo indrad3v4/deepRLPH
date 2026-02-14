@@ -12,6 +12,7 @@ RALPH UI - 3-Step Project Creation Wizard + Enhanced Execution View
 ✅ UI-007: Execution view with filesystem tree (future iteration)
 ✅ UI-008: Dark theme, keyboard shortcuts, validation
 ✅ UI-009: Two-phase meta-prompting for implementation-ready suggestions
+✅ UI-010: Phase 2B PRD backlog expansion with executable tasks
 
 Architecture: Tkinter + asyncio event loop integration
 Deepseek integration for AI-powered project configuration
@@ -48,6 +49,23 @@ except ImportError:
 logger = logging.getLogger("RalphUI")
 
 
+def _safe_get(d: Any, key: str, default: Any = None) -> Any:
+    """Safely get value from dict-like object, return default if not dict or key missing"""
+    if not isinstance(d, dict):
+        return default
+    return d.get(key, default)
+
+
+def _safe_get_nested(d: Any, key1: str, key2: str, default: Any = None) -> Any:
+    """Safely get nested value from dict, handle non-dict intermediates"""
+    if not isinstance(d, dict):
+        return default
+    intermediate = d.get(key1, {})
+    if not isinstance(intermediate, dict):
+        return default
+    return intermediate.get(key2, default)
+
+
 class AsyncioEventLoopThread(threading.Thread):
     """Run asyncio event loop in dedicated thread"""
 
@@ -65,7 +83,7 @@ class AsyncioEventLoopThread(threading.Thread):
 
 
 class ProjectWizard(tk.Toplevel):
-    """3-Step Project Creation Wizard (UI-001 to UI-009)"""
+    """3-Step Project Creation Wizard (UI-001 to UI-010)"""
 
     def __init__(self, parent, orchestrator: RalphOrchestrator, async_thread: AsyncioEventLoopThread):
         super().__init__(parent)
@@ -112,6 +130,7 @@ class ProjectWizard(tk.Toplevel):
             'dataset_files': [],
             'baseline_files': [],
             'ai_suggestions': {},
+            'prd_backlog': {},  # Phase 2B
             'final_config': {},
         }
         
@@ -528,7 +547,7 @@ class ProjectWizard(tk.Toplevel):
         self._refresh_file_list(key)
     
     def _create_step2_ai_suggestions(self):
-        """Step 2: AI Suggestions (UI-003)"""
+        """Step 2: AI Suggestions (UI-003, UI-010)"""
         container = tk.Frame(self.content_frame, bg=self.colors['bg_primary'])
         container.pack(fill='both', expand=True, padx=40, pady=20)
         
@@ -565,7 +584,7 @@ Files: {len(self.project_data['doc_files'])} docs, {len(self.project_data['datas
         
         self.ask_ai_btn = tk.Button(
             btn_frame,
-            text="🤖 Ask AI / Generate Suggestions",
+            text="🤖 Ask AI / Generate PRD",
             command=self._ask_ai_for_suggestions,
             font=('Arial', 14, 'bold'),
             bg=self.colors['accent_blue'],
@@ -577,7 +596,7 @@ Files: {len(self.project_data['doc_files'])} docs, {len(self.project_data['datas
         
         self.ai_status_label = tk.Label(
             container,
-            text="Press the button above to get AI-powered configuration suggestions",
+            text="Press the button above to get AI-powered PRD with executable tasks",
             font=('Arial', 10),
             bg=self.colors['bg_primary'],
             fg=self.colors['text_secondary']
@@ -587,7 +606,7 @@ Files: {len(self.project_data['doc_files'])} docs, {len(self.project_data['datas
         # AI Suggestions display (initially hidden)
         self.suggestions_frame = tk.LabelFrame(
             container,
-            text="AI Configuration Suggestions",
+            text="📋 PRD Backlog - Executable Tasks",
             font=('Arial', 12, 'bold'),
             bg=self.colors['bg_secondary'],
             fg=self.colors['text_primary'],
@@ -595,24 +614,26 @@ Files: {len(self.project_data['doc_files'])} docs, {len(self.project_data['datas
             pady=15
         )
         
-        self.suggestions_text = tk.Text(
+        self.suggestions_text = scrolledtext.ScrolledText(
             self.suggestions_frame,
             height=15,
             width=100,
-            font=('Arial', 10),
+            font=('Consolas', 9),
             wrap='word',
             state='normal'
         )
         self.suggestions_text.pack(fill='both', expand=True)
         
-        # If suggestions already exist, show them
-        if self.project_data['ai_suggestions']:
+        # If PRD backlog or suggestions exist, show them
+        if self.project_data.get('prd_backlog'):
+            self._display_prd_backlog(self.project_data['prd_backlog'])
+        elif self.project_data.get('ai_suggestions'):
             self._display_ai_suggestions(self.project_data['ai_suggestions'])
     
     def _ask_ai_for_suggestions(self):
-        """Call DeepseekClient for AI suggestions (UI-003)"""
+        """Call DeepseekClient for AI suggestions + Phase 2B PRD expansion"""
         self.ask_ai_btn.config(state='disabled')
-        self.ai_status_label.config(text="🔄 Analyzing your project... (this may take 15-30 seconds)", fg=self.colors['accent_blue'])
+        self.ai_status_label.config(text="🔄 Phase 1: Analyzing project... (15-30s)", fg=self.colors['accent_blue'])
         self.update()
         
         # Build AI prompt
@@ -630,7 +651,7 @@ Provide JSON with:
 - problem_type (classification, regression, time_series_forecasting, nlp, computer_vision)
 - model_type (LSTM, GRU, Transformer, XGBoost, etc.)
 - ml_framework (PyTorch, TensorFlow, JAX, scikit-learn)
-- training_preset (batch_size, epochs, learning_rate)
+- training_preset (dict with batch_size, epochs, learning_rate as numbers)
 - eval_metric (R², RMSE, MAE, Accuracy, F1, AUC-ROC, weighted_pearson)
 - metric_target (reasonable target value)
 - checklist (3-5 key implementation tasks)
@@ -658,6 +679,7 @@ Respond ONLY with valid JSON, no markdown."""
         # Call DeepseekClient asynchronously
         async def fetch_suggestions():
             try:
+                # Phase 1: Get basic suggestions
                 result = await self.orchestrator.deepseek_client.call_agent(
                     system_prompt=system_prompt,
                     user_message=user_message,
@@ -678,12 +700,44 @@ Respond ONLY with valid JSON, no markdown."""
                         suggestions = json.loads(response_text)
                         self.project_data['ai_suggestions'] = suggestions
                         
-                        # Update UI in main thread
-                        self.after(0, lambda: self._display_ai_suggestions(suggestions))
+                        # 🆕 Phase 2B: Expand into PRD backlog
                         self.after(0, lambda: self.ai_status_label.config(
-                            text="✅ AI suggestions generated successfully! Review and edit below.",
-                            fg=self.colors['accent_green']
+                            text="🔄 Phase 2: Expanding into executable PRD backlog... (15-30s)",
+                            fg=self.colors['accent_blue']
                         ))
+                        
+                        try:
+                            prd_backlog = await self.prompt_generator.expand_to_prd_backlog(
+                                config=suggestions,
+                                project_data=self.project_data
+                            )
+                            
+                            if 'error' not in prd_backlog and prd_backlog.get('backlog'):
+                                # Success: Store and display PRD backlog
+                                self.project_data['prd_backlog'] = prd_backlog
+                                self.after(0, lambda: self._display_prd_backlog(prd_backlog))
+                                self.after(0, lambda: self.ai_status_label.config(
+                                    text=f"✅ PRD generated with {len(prd_backlog['backlog'])} executable tasks!",
+                                    fg=self.colors['accent_green']
+                                ))
+                            else:
+                                # Fallback to basic suggestions
+                                logger.warning(f"PRD expansion failed or empty: {prd_backlog.get('error', 'No backlog items')}")
+                                self.after(0, lambda: self._display_ai_suggestions(suggestions))
+                                self.after(0, lambda: self.ai_status_label.config(
+                                    text="⚠️ PRD expansion incomplete, showing basic suggestions",
+                                    fg='#f97316'
+                                ))
+                        except Exception as e:
+                            logger.error(f"Phase 2B error: {e}", exc_info=True)
+                            # Fallback to basic suggestions
+                            self.after(0, lambda: self._display_ai_suggestions(suggestions))
+                            self.after(0, lambda: self.ai_status_label.config(
+                                text=f"⚠️ PRD expansion failed: {str(e)[:50]}",
+                                fg='#f97316'
+                            ))
+                        
+                        self.after(0, lambda: self.ask_ai_btn.config(state='normal'))
                     except json.JSONDecodeError as e:
                         self.after(0, lambda: self.ai_status_label.config(
                             text=f"❌ Failed to parse AI response: {str(e)}",
@@ -707,16 +761,63 @@ Respond ONLY with valid JSON, no markdown."""
         self.async_thread.submit(fetch_suggestions())
     
     def _display_ai_suggestions(self, suggestions: Dict):
-        """Display AI suggestions in UI"""
+        """Display basic AI suggestions (Phase 2 fallback)"""
         self.suggestions_frame.pack(fill='both', expand=True, pady=20)
+        self.suggestions_frame.config(text="AI Configuration Suggestions (Basic)")
         
         self.suggestions_text.delete('1.0', 'end')
         self.suggestions_text.insert('1.0', json.dumps(suggestions, indent=2))
         
-        self.ask_ai_btn.config(text="🔄 Regenerate Suggestions", state='normal')
+        self.ask_ai_btn.config(text="🔄 Regenerate PRD", state='normal')
+    
+    def _display_prd_backlog(self, prd_backlog: Dict):
+        """Display PRD backlog in structured, readable format (Phase 2B)"""
+        self.suggestions_frame.pack(fill='both', expand=True, pady=20)
+        self.suggestions_frame.config(text="📋 PRD Backlog - Executable Tasks")
+        
+        # Clear previous content
+        self.suggestions_text.delete('1.0', 'end')
+        
+        # Format PRD backlog
+        backlog_text = "🎯 PRD BACKLOG - Executable Implementation Tasks\n"
+        backlog_text += "=" * 80 + "\n\n"
+        
+        # Show execution plan
+        if 'execution_plan' in prd_backlog:
+            backlog_text += f"🏗️ EXECUTION PLAN:\n{prd_backlog['execution_plan']}\n\n"
+        
+        # Show backlog items
+        for i, item in enumerate(prd_backlog.get('backlog', []), 1):
+            backlog_text += f"[{item.get('item_id', f'ITEM-{i:03d}')}] {item.get('title', 'Untitled')}\n"
+            backlog_text += f"   Priority: {item.get('priority', '?')} | Est. Lines: {item.get('estimated_lines', '?')}\n"
+            backlog_text += f"   Why: {item.get('why', 'N/A')}\n\n"
+            
+            backlog_text += "   Acceptance Criteria:\n"
+            for criterion in item.get('acceptance_criteria', []):
+                backlog_text += f"     ✓ {criterion}\n"
+            
+            backlog_text += f"\n   Verification: {item.get('verification_command', 'Manual check')}\n"
+            backlog_text += f"   Type: {item.get('verification_type', 'automated')}\n"
+            
+            if item.get('files_touched'):
+                backlog_text += "   Files: " + ", ".join(item['files_touched']) + "\n"
+            
+            backlog_text += "\n" + "-" * 80 + "\n\n"
+        
+        # Show definition of done
+        if 'definition_of_done' in prd_backlog:
+            backlog_text += "✅ DEFINITION OF DONE:\n"
+            for criterion in prd_backlog['definition_of_done']:
+                backlog_text += f"  • {criterion}\n"
+        
+        # Insert formatted text
+        self.suggestions_text.insert('1.0', backlog_text)
+        
+        # Update button
+        self.ask_ai_btn.config(text="🔄 Regenerate PRD", state='normal')
     
     def _create_step3_review(self):
-        """Step 3: Review & Advanced (UI-004, UI-005)"""
+        """Step 3: Review & Advanced (UI-004, UI-005, UI-010)"""
         container = tk.Frame(self.content_frame, bg=self.colors['bg_primary'])
         container.pack(fill='both', expand=True, padx=40, pady=20)
         
@@ -788,8 +889,67 @@ Respond ONLY with valid JSON, no markdown."""
             
             section_frame.columnconfigure(1, weight=1)
         
-        # Checklist preview (if AI provided)
-        if 'checklist' in self.project_data['ai_suggestions']:
+        # 🆕 PRD Backlog Items (if Phase 2B ran)
+        if 'prd_backlog' in self.project_data and 'backlog' in self.project_data['prd_backlog']:
+            prd_frame = tk.LabelFrame(
+                scrollable_frame,
+                text="📋 PRD Backlog - Executable Tasks",
+                font=('Arial', 12, 'bold'),
+                bg=self.colors['bg_secondary'],
+                fg=self.colors['text_primary'],
+                padx=15,
+                pady=15
+            )
+            prd_frame.pack(fill='x', pady=10)
+            
+            items_count = len(self.project_data['prd_backlog']['backlog'])
+            tk.Label(
+                prd_frame,
+                text=f"{items_count} executable tasks generated. These will be used for orchestrator execution.",
+                font=('Arial', 10),
+                bg=self.colors['bg_secondary'],
+                fg=self.colors['text_secondary'],
+                anchor='w'
+            ).pack(fill='x', pady=(0, 10))
+            
+            for item in self.project_data['prd_backlog']['backlog'][:3]:  # Show first 3
+                item_frame = tk.Frame(prd_frame, bg=self.colors['bg_tertiary'], relief='solid', bd=1)
+                item_frame.pack(fill='x', pady=3, padx=2)
+                
+                # Item header
+                header = f"{item.get('item_id', '?')}: {item.get('title', 'Untitled')} (Priority {item.get('priority', '?')})"
+                tk.Label(
+                    item_frame,
+                    text=header,
+                    font=('Arial', 9, 'bold'),
+                    bg=self.colors['bg_tertiary'],
+                    fg=self.colors['accent_blue'],
+                    anchor='w'
+                ).pack(fill='x', padx=5, pady=2)
+                
+                # Criteria count
+                criteria_count = len(item.get('acceptance_criteria', []))
+                tk.Label(
+                    item_frame,
+                    text=f"✓ {criteria_count} criteria | Verify: {item.get('verification_command', 'manual')[:40]}",
+                    font=('Arial', 8),
+                    bg=self.colors['bg_tertiary'],
+                    fg=self.colors['text_secondary'],
+                    anchor='w'
+                ).pack(fill='x', padx=5, pady=2)
+            
+            if items_count > 3:
+                tk.Label(
+                    prd_frame,
+                    text=f"... and {items_count - 3} more tasks",
+                    font=('Arial', 9, 'italic'),
+                    bg=self.colors['bg_secondary'],
+                    fg=self.colors['text_secondary'],
+                    anchor='w'
+                ).pack(fill='x', pady=(5, 0))
+        
+        # Checklist preview (if AI provided, fallback for non-PRD)
+        elif 'checklist' in self.project_data.get('ai_suggestions', {}):
             checklist_frame = tk.LabelFrame(
                 scrollable_frame,
                 text="Implementation Checklist",
@@ -813,8 +973,8 @@ Respond ONLY with valid JSON, no markdown."""
                 ).pack(fill='x', pady=2)
     
     def _build_final_config(self):
-        """Build final config dict from wizard data + AI suggestions (UI-004, UI-005)"""
-        suggestions = self.project_data['ai_suggestions']
+        """Build final config dict from wizard data + AI suggestions - SAFE VERSION"""
+        suggestions = self.project_data.get('ai_suggestions', {})
         project_type = self.project_data['project_type']
         
         config = {
@@ -825,27 +985,29 @@ Respond ONLY with valid JSON, no markdown."""
         }
         
         if project_type == 'ml':
+            # Use safe getters to handle non-dict values
             config.update({
-                'domain': suggestions.get('problem_type', 'time_series_forecasting'),
-                'ml_framework': suggestions.get('ml_framework', 'PyTorch'),
-                'model_type': suggestions.get('model_type', 'LSTM'),
+                'domain': _safe_get(suggestions, 'problem_type', 'time_series_forecasting'),
+                'ml_framework': _safe_get(suggestions, 'ml_framework', 'PyTorch'),
+                'model_type': _safe_get(suggestions, 'model_type', 'LSTM'),
                 'architecture': 'ml_pipeline',
-                'framework': suggestions.get('ml_framework', 'PyTorch'),
+                'framework': _safe_get(suggestions, 'ml_framework', 'PyTorch'),
                 'database': 'None',
-                'kpi_metric': suggestions.get('eval_metric', 'R²'),
-                'kpi_target': suggestions.get('metric_target', 0.0),
-                'batch_size': suggestions.get('training_preset', {}).get('batch_size', 64),
-                'epochs': suggestions.get('training_preset', {}).get('epochs', 100),
-                'learning_rate': suggestions.get('training_preset', {}).get('learning_rate', 0.001),
+                'kpi_metric': _safe_get(suggestions, 'eval_metric', 'R²'),
+                'kpi_target': _safe_get(suggestions, 'metric_target', 0.0),
+                # Safe nested access for training_preset
+                'batch_size': _safe_get_nested(suggestions, 'training_preset', 'batch_size', 64),
+                'epochs': _safe_get_nested(suggestions, 'training_preset', 'epochs', 100),
+                'learning_rate': _safe_get_nested(suggestions, 'training_preset', 'learning_rate', 0.001),
             })
         else:
             config.update({
-                'domain': suggestions.get('domain', 'llm-app'),
-                'architecture': suggestions.get('architecture', 'clean_architecture'),
-                'framework': suggestions.get('framework', 'FastAPI'),
-                'database': suggestions.get('database', 'PostgreSQL'),
-                'kpi_metric': suggestions.get('kpi_metric', 'tests_passed_ratio'),
-                'kpi_target': suggestions.get('kpi_target', 1.0),
+                'domain': _safe_get(suggestions, 'domain', 'llm-app'),
+                'architecture': _safe_get(suggestions, 'architecture', 'clean_architecture'),
+                'framework': _safe_get(suggestions, 'framework', 'FastAPI'),
+                'database': _safe_get(suggestions, 'database', 'PostgreSQL'),
+                'kpi_metric': _safe_get(suggestions, 'kpi_metric', 'tests_passed_ratio'),
+                'kpi_target': _safe_get(suggestions, 'kpi_target', 1.0),
             })
         
         self.project_data['final_config'] = config
@@ -909,6 +1071,10 @@ Respond ONLY with valid JSON, no markdown."""
                 'metric_target': float(cfg['kpi_target']),
             }
             
+            # 🆕 Add PRD backlog to metadata if available
+            if 'prd_backlog' in self.project_data and self.project_data['prd_backlog']:
+                metadata['prd_backlog'] = self.project_data['prd_backlog']
+            
             if project_type == 'ml':
                 metadata.update({
                     'competition_url': cfg.get('competition_url', 'N/A'),
@@ -935,9 +1101,13 @@ Respond ONLY with valid JSON, no markdown."""
             result = self.orchestrator.create_project(project_config)
             
             if result.get('status') == 'success':
+                prd_msg = ""
+                if 'prd_backlog' in metadata:
+                    prd_msg = f"\n\n📋 PRD: {len(metadata['prd_backlog'].get('backlog', []))} executable tasks"
+                
                 messagebox.showinfo(
                     "Success",
-                    f"Project '{cfg['name']}' created successfully!\n\nKPI: {cfg['kpi_metric']} (target: {cfg['kpi_target']})\n\nCheck the Projects tab."
+                    f"Project '{cfg['name']}' created successfully!\n\nKPI: {cfg['kpi_metric']} (target: {cfg['kpi_target']}){prd_msg}\n\nCheck the Projects tab."
                 )
                 self.destroy()
                 # Trigger parent UI refresh
@@ -1008,7 +1178,7 @@ class RalphUI(tk.Tk):
         self._create_layout()
         self._refresh_projects()
         
-        logger.info("✅ RALPH UI initialized with 3-step wizard")
+        logger.info("✅ RALPH UI initialized with 3-step wizard + Phase 2B PRD")
     
     def _setup_styles(self):
         """Configure professional UI styles"""
@@ -1071,7 +1241,7 @@ Features:
 🤖 ML Competition Support (Wundernn.io, Kaggle, etc.)
 📊 Automatic code validation (black, mypy, pytest, pylint)
 🎯 Per-project KPI tracking
-📝 3-step wizard with AI suggestions"""
+📝 3-step wizard with Phase 2B PRD backlog expansion"""
         ttk.Label(container, text=workflow, font=('Arial', 11), justify='left').pack(pady=20)
         
         btn_frame = ttk.Frame(container)
@@ -1082,7 +1252,7 @@ Features:
     
     def _show_docs(self):
         """Show documentation"""
-        messagebox.showinfo("Documentation", "Check README.md in the deepRLPH repository for full documentation.")
+        messagebox.showinfo("Documentation", "Check README.md and PHASE2_IMPLEMENTATION.md in the deepRLPH repository.")
     
     def _create_projects_tab(self):
         """Projects management tab with KPI column (UI-006)"""
