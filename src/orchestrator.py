@@ -889,7 +889,7 @@ class RalphOrchestrator:
                 await log_callback(f"📊 Partitioned {total_user_stories} user stories across {num_agents} agents")
 
             logger.info("🔍 [DEBUG] Creating orchestrator prompt...")
-            orchestrator_prompt = self._create_orchestrator_prompt(
+            orchestrator_prompt = await self._generate_dynamic_orchestrator_prompt(
                 prd=prd,
                 config=self.current_config,
                 domain=self.current_config.domain if self.current_config else "web_app"
@@ -1033,105 +1033,183 @@ class RalphOrchestrator:
         for agent_key, agent_items in partitions.items():
             self._log(f"   {agent_key}: {len(agent_items)} stories")
 
-        return partitions
-
-    def _create_orchestrator_prompt(
-            self,
-            prd: Dict[str, Any],
-            config: ProjectConfig,
-            domain: str
+        return partitions    async def _generate_dynamic_orchestrator_prompt(
+        self,
+        prd: Dict[str, Any],
+        config: ProjectConfig,
+        domain: str
     ) -> str:
-        """Create system prompt for orchestrator agent"""
-        prd_summary = self._format_prd_summary(prd)
+        """
+        BE-006: Use DeepSeek to generate project-specific orchestrator prompt.
+        
+        This makes the orchestrator universal - it adapts to ANY project type
+        (Wundernn, Kaggle, custom competitions) without hardcoding.
+        """
+        
+        # Build context for prompt generation
+        meta = config.metadata or {}
+        ingested_context = meta.get('ingested_context', {})
+        
+        context_summary = f"""
+PROJECT TYPE: {meta.get('project_type', 'unknown')}
+COMPETITION: {meta.get('competition_url', 'N/A')}
+PROBLEM TYPE: {meta.get('problem_type', 'N/A')}
+EVAL METRIC: {meta.get('eval_metric', 'N/A')}
+METRIC TARGET: {meta.get('metric_target', 'N/A')}
+ML FRAMEWORK: {meta.get('ml_framework', 'N/A')}
+MODEL TYPE: {meta.get('model_type', 'N/A')}
 
-        if config.metadata.get('project_type') == "ml_competition":
-            meta = config.metadata
-            prompt = f"""You are a senior ML engineer implementing a machine learning competition solution.
+INGESTED CONTEXT SUMMARY:
+- Documentation files: {len(ingested_context.get('docs', []))}
+- Dataset files: {len(ingested_context.get('datasets', []))}
+- Code files: {len(ingested_context.get('code', []))}
+- Model files: {len(ingested_context.get('models', []))}
+
+PRD SUMMARY:
+{self._format_prd_summary(prd)[:1000]}
+"""
+        
+        system_prompt = """You are an expert ML/software engineering architect.
+        
+Your task: Analyze the project context and generate a detailed, domain-specific 
+orchestrator prompt that will guide AI agents to implement the solution correctly.
+
+Requirements:
+1. Identify the domain and specific challenges
+2. Suggest appropriate architectures (be open - not just LSTM/GRU, consider TabNet, Transformers, XGBoost, LightGBM, ensemble methods, etc.)
+3. Provide dataset-specific preprocessing guidance
+4. Detail evaluation metric calculation (exact formula if custom)
+5. Include submission format requirements
+6. Suggest best practices for this specific domain
+
+Output: A structured prompt (500-1000 words) that an AI agent will use as system instructions."""
+
+        user_message = f"""Generate an orchestrator prompt for this project:
+
+{context_summary}
+
+Focus on:
+- **Domain knowledge**: What makes this problem unique?
+- **Architecture flexibility**: Suggest multiple viable approaches based on problem characteristics
+  * For time-series: LSTM, GRU, Transformer, temporal CNNs
+  * For tabular: XGBoost, LightGBM, CatBoost, TabNet, neural networks
+  * For NLP: BERT, GPT, T5, fine-tuning strategies
+  * For vision: CNNs, Vision Transformers, ResNet, EfficientNet
+  * Mention ensemble methods where appropriate
+- **Data handling**: Preprocessing, feature engineering, validation strategy
+- **Metric specifics**: Exact formula, edge cases, optimization tips
+- **Submission requirements**: Format, file structure, model export
+
+Be specific to THIS competition/project, not generic ML advice."""
+
+        try:
+            self._log("[AI] Generating project-specific orchestrator guidance using DeepSeek...")
+            
+            result = await self.deepseek_client.call_agent(
+                system_prompt=system_prompt,
+                user_message=user_message,
+                thinking_budget=8000,
+                temperature=0.4
+            )
+            
+            if result['status'] == 'success':
+                dynamic_guidance = result['response']
+                self._log("[OK] Dynamic orchestrator guidance generated")
+                
+                base_prompt = self._create_base_orchestrator_prompt(prd, config, domain)
+                
+                full_prompt = f"""{base_prompt}
+
+---
+
+PROJECT-SPECIFIC GUIDANCE (AI-Generated):
+
+{dynamic_guidance}
+
+---
+
+Now begin implementation following the above guidance."""
+                
+                return full_prompt
+            else:
+                logger.warning(f"Dynamic prompt generation failed: {result.get('error')}")
+                self._log(f"[WARN] Dynamic prompt generation failed, using base prompt")
+                return self._create_base_orchestrator_prompt(prd, config, domain)
+                
+        except Exception as e:
+            logger.error(f"Error generating dynamic prompt: {e}")
+            self._log(f"[WARN] Error generating dynamic prompt: {e}, using base prompt")
+            return self._create_base_orchestrator_prompt(prd, config, domain)
+
+    def _create_base_orchestrator_prompt(
+        self,
+        prd: Dict[str, Any],
+        config: ProjectConfig,
+        domain: str
+    ) -> str:
+        """Universal base prompt (architecture-agnostic)"""
+        meta = config.metadata or {}
+        prd_summary = self._format_prd_summary(prd)
+        
+        if meta.get('project_type') == 'ml_competition':
+            return f"""You are a senior ML engineer implementing a machine learning competition solution.
 
 PROJECT INFO:
 - Name: {config.name}
 - Competition: {meta.get('competition_url', 'N/A')}
 - Problem: {meta.get('problem_type', 'N/A')}
 - Framework: {meta.get('ml_framework', 'PyTorch')}
-- Model: {meta.get('model_type', 'LSTM')}
-- Primary KPI: {meta.get('eval_metric', 'score')} (threshold in metrics_config.json)
-
-If ingested_context is present in project_metadata, you MUST respect it as the
-source of truth for file locations and existing code/model artifacts.
+- Primary KPI: {meta.get('eval_metric', 'score')}
 
 YOUR TASK:
-Implement the assigned PRD items. For each item:
-1. Understand the acceptance criteria
-2. Generate complete, working Python code
-3. Include docstrings and type hints
-4. Follow ML engineering best practices
-5. Ensure code is reproducible and tested
-6. Ensure evaluation scripts print the KPI exactly once using the pattern from metrics_config.json
+Implement the assigned PRD items with production-quality code.
+Choose the most appropriate architecture for the problem (LSTM, GRU, Transformer, XGBoost, TabNet, ensemble, etc.).
 
 PRD CONTEXT:
 {prd_summary}
 
 DELIVERABLES:
-- Data loading and preprocessing modules
-- Model architecture definition
-- Training pipeline
-- Evaluation metrics (with KPI logging)
-- Prediction and submission generation
-- Unit tests for data processing
-- Documentation strings
+- Data loading and preprocessing
+- Model architecture (any SOTA approach appropriate for the problem)
+- Training pipeline with checkpointing
+- Evaluation with exact metric calculation
+- Submission generation
+- Unit tests and documentation
 
-QUALITY REQUIREMENTS:
-✓ Type hints on all functions
-✓ Docstrings (Google style)
-✓ Reproducible training (seed setting)
-✓ Model checkpointing
-✓ Logging and monitoring
-✓ Error handling
-✓ GPU/CPU compatibility
-
-Start implementation now. Generate complete, working code."""
+QUALITY STANDARDS:
+- Type hints and docstrings
+- Reproducible (seed setting)
+- GPU/CPU compatible
+- Proper error handling
+- Clean, modular code"""
+        
         else:
-            prompt = f"""You are a senior Python engineer coordinating the implementation of a software project.
+            return f"""You are a senior Python engineer implementing a software project.
 
 PROJECT INFO:
-- Name: {config.name if config else 'Unknown'}
+- Name: {config.name}
 - Domain: {domain}
-- Architecture: {config.architecture if config else 'clean_architecture'}
-- Framework: {config.framework if config else 'FastAPI'}
-- Language: {config.language if config else 'Python'}
-- Database: {config.database if config else 'PostgreSQL'}
-
-If ingested_context is present in project_metadata, you MUST respect it as the
-source of truth for file locations and existing code/model artifacts.
+- Architecture: {config.architecture}
+- Framework: {config.framework}
 
 YOUR TASK:
-Implement the assigned PRD items. For each item:
-1. Understand the acceptance criteria
-2. Generate complete, working Python code
-3. Include docstrings and type hints
-4. Follow {config.architecture if config else 'clean'} architecture patterns
-5. Ensure code is production-ready and tested
+Implement the assigned PRD items following best practices.
 
 PRD CONTEXT:
 {prd_summary}
 
 DELIVERABLES:
-- Complete source files (.py)
-- Unit tests for each module
-- Documentation strings
-- Error handling and logging
+- Complete source files
+- Unit tests (>80% coverage)
+- Documentation
+- Error handling
 
-QUALITY REQUIREMENTS:
-✓ Type hints on all functions
-✓ Docstrings (Google style)
-✓ Unit test coverage >80%
-✓ No linting errors (PEP8)
-✓ Database migrations if needed
-✓ Environment variables in .env.example
+QUALITY STANDARDS:
+- Type hints and docstrings
+- Clean architecture patterns
+- PEP8 compliant
+- Production-ready"""
 
-Start implementation now. Generate complete, working code."""
-
-        return prompt
 
     def _format_prd_summary(self, prd: Dict[str, Any]) -> str:
         """Format PRD items as readable summary"""
