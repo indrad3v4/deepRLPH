@@ -24,6 +24,7 @@ from abc import ABC, abstractmethod
 
 from context_ingestor import ingest_project_context  # PRD-01
 from schema_integrator import SchemaIntegrator  # BE-002.2
+from agent_profiles import AgentProfileStore  # PR-Agents
 
 # Configure logging
 logging.basicConfig(
@@ -696,6 +697,9 @@ class RalphOrchestrator:
         # BE-002: Schema integrator
         self.schema_integrator = SchemaIntegrator()
 
+        # PR-Agents: per-project agent profile store (initialized lazily)
+        self.agent_profile_store: Optional[AgentProfileStore] = None
+
         logger.info("🚀 RALPH Orchestrator initialized")
         logger.info(f"   Workspace: {self.workspace}")
 
@@ -720,6 +724,9 @@ class RalphOrchestrator:
 
             # Create config + README + requirements + metrics_config
             WorkspaceManager.create_config_files(project_dir, config)
+
+            # Initialize empty AgentProfileStore for the new project
+            self.agent_profile_store = AgentProfileStore.load_for_project(project_dir)
 
             # Log event
             project_type_display = config.metadata.get('project_type', config.project_type).upper().replace("_", " ")
@@ -912,6 +919,10 @@ class RalphOrchestrator:
                     logger.info("💾 Saved canonical PRD to %s", prd_file)
                 except Exception as e:
                     logger.warning("⚠️ Failed to write canonical prd.json: %s", e)
+
+                # Ensure agent profile store exists for this project
+                if self.agent_profile_store is None:
+                    self.agent_profile_store = AgentProfileStore.load_for_project(self.current_project_dir)
 
             execution_id = f"exec_{self._generate_project_id('')}"
             logger.info(f"🔍 [DEBUG] Generated execution_id: {execution_id}")
