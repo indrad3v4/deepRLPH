@@ -5,14 +5,16 @@ RALPH Prompt Generator - Meta-Prompting for AI Suggestions
 Implements two-phase DeepSeek execution:
 1. Phase 1: Generate specialized prompt based on project context
 2. Phase 2: Execute specialized prompt to get implementation-ready specs
+3. Phase 2B (NEW): Expand config into PRD backlog with acceptance criteria
 
 Solves the "Transformer" vs "PatchTST(patch_size=16...)" problem
-by making prompts adapt to project requirements.
+by making prompts adapt to project requirements, then breaks it into
+executable tasks.
 """
 
 import logging
 import json
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from pathlib import Path
 
 logger = logging.getLogger("PromptGenerator")
@@ -148,6 +150,177 @@ Respond with valid JSON only, no markdown code blocks.
         
         except Exception as e:
             logger.error(f"❌ Exception in Phase 2: {e}", exc_info=True)
+            return {'error': str(e)}
+    
+    async def expand_to_prd_backlog(self, config: Dict[str, Any], project_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Phase 2B (NEW): Expand config into PRD backlog with acceptance criteria.
+        
+        Takes high-level config like {"model_type": "Transformer", ...} and expands
+        it into detailed, executable PRD items with:
+        - Item ID
+        - Title
+        - Why / value
+        - Acceptance criteria (bullet list)
+        - Verification (exact command or manual check)
+        - Files/modules likely touched
+        
+        Args:
+            config: Validated AI suggestions from Phase 2
+            project_data: Original project input
+        
+        Returns:
+            PRD backlog dict with ordered items
+        """
+        project_type = project_data.get('project_type', 'api')
+        project_name = project_data.get('name', 'Unnamed Project')
+        description = project_data.get('description', '')
+        
+        # Build expansion prompt
+        expansion_prompt = f"""You are a senior technical PM converting high-level architecture into an executable PRD backlog.
+
+# Project Context
+Name: {project_name}
+Type: {project_type.upper()}
+Description: {description}
+
+# High-Level Configuration
+{json.dumps(config, indent=2)}
+
+# Your Task
+Convert this config into a PRD backlog of 5-8 small, testable items that fit in one agent iteration.
+Each item must be independently implementable and verifiable.
+
+# Required Output Format (JSON)
+{{
+  "backlog": [
+    {{
+      "item_id": "ITEM-001",
+      "title": "Implement Custom Weighted Pearson Loss",
+      "why": "Core metric for competition evaluation - must match official formula exactly",
+      "priority": 1,
+      "acceptance_criteria": [
+        "Loss function matches competition formula (weighted average of per-variable Pearson correlations)",
+        "Handles edge cases: NaN/inf values, all-zeros input, negative correlations",
+        "Unit tests cover 5+ scenarios including edge cases",
+        "Docstring explains formula and expected input shapes"
+      ],
+      "verification_command": "pytest tests/test_loss.py::test_weighted_pearson -v",
+      "verification_type": "automated",
+      "files_touched": [
+        "src/losses/weighted_pearson.py",
+        "tests/test_loss.py"
+      ],
+      "estimated_lines": 80
+    }},
+    {{
+      "item_id": "ITEM-002",
+      "title": "Set Up Time-Series Cross-Validation",
+      "why": "Prevent data leakage in temporal data - critical for valid metrics",
+      "priority": 2,
+      "acceptance_criteria": [
+        "TimeSeriesSplit with configurable n_splits and gap between train/val",
+        "Respects sequence boundaries (1000 timesteps per sequence)",
+        "Config-driven (reads n_splits from project metadata)",
+        "Returns proper train/val indices that don't overlap"
+      ],
+      "verification_command": "pytest tests/test_data.py::test_cv_no_leakage",
+      "verification_type": "automated",
+      "files_touched": [
+        "src/data/cv_splitter.py",
+        "tests/test_data.py"
+      ],
+      "estimated_lines": 60
+    }}
+  ],
+  "execution_plan": "FOR EACH item IN backlog (ordered by priority): Implement → Run verification → Fix failures → Commit → Mark PASS. DONE WHEN: All items pass + metric target achieved.",
+  "definition_of_done": [
+    "All backlog items pass their verification commands",
+    "{config.get('eval_metric', 'metric')} ≥ {config.get('metric_target', 'target')} on validation set",
+    "Code passes: black (format), mypy (types), pytest (tests), pylint ≥8.0 (quality)",
+    "README updated with setup and run instructions"
+  ],
+  "file_structure": {{
+    "{project_name}/": [
+      "src/losses/weighted_pearson.py",
+      "src/data/cv_splitter.py",
+      "src/models/patchtst.py",
+      "src/training/trainer.py",
+      "tests/test_loss.py",
+      "tests/test_data.py",
+      "tests/test_model.py",
+      "train.py",
+      "metrics_config.json"
+    ]
+  }}
+}}
+
+# Rules for Items
+1. **Small scope**: Each item should take 1-2 hours max for an agent to implement
+2. **Independent**: Items should not depend on each other's internal implementation
+3. **Testable**: Every item MUST have automated verification (pytest command) or clear manual check
+4. **Specific**: "Implement PatchTST model" → NOT generic. "Implement PatchTST(patch_size=16, d_model=128, num_layers=3)" → GOOD
+5. **Ordered**: Priority 1 = foundational (e.g., data loading), higher priority = depends on earlier items
+
+# ML Project Item Suggestions
+- Custom loss function implementation (if competition uses special metric)
+- Data pipeline with validation strategy (CV split, augmentation)
+- Model architecture implementation (specific model with hyperparams)
+- Training loop with metric logging and early stopping
+- ONNX export pipeline (if required for submission)
+- Inference script for submission format
+
+# API Project Item Suggestions
+- Database models and migrations
+- Core API endpoints with validation
+- Authentication/authorization middleware
+- Business logic services
+- Integration tests for key workflows
+- API documentation (OpenAPI/Swagger)
+
+Provide ONLY valid JSON matching the format above. No markdown code blocks.
+"""
+        
+        try:
+            logger.info("📋 Expanding config to PRD backlog (Phase 2B)...")
+            result = await self.deepseek.call_agent(
+                system_prompt="You are an expert technical PM. Convert architecture into executable PRD items with acceptance criteria and verification commands.",
+                user_message=expansion_prompt,
+                thinking_budget=6000,
+                temperature=0.2
+            )
+            
+            if result['status'] == 'success':
+                response_text = result['response']
+                # Parse JSON
+                try:
+                    if '```json' in response_text:
+                        response_text = response_text.split('```json')[1].split('```')[0].strip()
+                    elif '```' in response_text:
+                        response_text = response_text.split('```')[1].split('```')[0].strip()
+                    
+                    prd_backlog = json.loads(response_text)
+                    
+                    # Validate structure
+                    if 'backlog' not in prd_backlog or not isinstance(prd_backlog['backlog'], list):
+                        logger.error("❌ PRD backlog missing 'backlog' array")
+                        return {'error': 'Invalid PRD structure: missing backlog array'}
+                    
+                    if len(prd_backlog['backlog']) < 3:
+                        logger.warning(f"⚠️ PRD backlog only has {len(prd_backlog['backlog'])} items (expected 5-8)")
+                    
+                    logger.info(f"✅ PRD backlog generated with {len(prd_backlog['backlog'])} items")
+                    return prd_backlog
+                
+                except json.JSONDecodeError as e:
+                    logger.error(f"❌ Failed to parse PRD JSON: {e}")
+                    return {'error': f'JSON parse error: {str(e)}', 'raw_response': response_text[:500]}
+            else:
+                logger.error(f"❌ PRD expansion failed: {result.get('error')}")
+                return {'error': result.get('error', 'Unknown error')}
+        
+        except Exception as e:
+            logger.error(f"❌ Exception in PRD expansion: {e}", exc_info=True)
             return {'error': str(e)}
     
     def _summarize_files(self, project_data: Dict[str, Any]) -> str:
