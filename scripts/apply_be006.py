@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 BE-006 Automatic Application Script
 
@@ -25,24 +26,24 @@ def apply_be006():
     backup_file = Path("src/orchestrator.py.backup")
     
     if not orchestrator_file.exists():
-        print("❌ Error: src/orchestrator.py not found!")
+        print("[ERROR] src/orchestrator.py not found!")
         print("   Make sure you're running from the project root directory.")
         return False
     
-    print("💾 Creating backup...")
+    print("[BACKUP] Creating backup...")
     shutil.copy(orchestrator_file, backup_file)
-    print(f"✅ Backup created: {backup_file}")
+    print(f"[OK] Backup created: {backup_file}")
     
     # Read the file
-    print("📝 Reading orchestrator.py...")
+    print("[READ] Reading orchestrator.py...")
     content = orchestrator_file.read_text(encoding='utf-8')
-    original_lines = len(content.split('\\n'))
+    original_lines = len(content.split('\n'))
     
     # Step 1: Replace _create_orchestrator_prompt method with two new methods
-    print("🔧 Step 1: Replacing _create_orchestrator_prompt() method...")
+    print("[STEP 1] Replacing _create_orchestrator_prompt() method...")
     
     # Find the method (starts with "def _create_orchestrator_prompt" and ends before next method)
-    old_method_pattern = r'(\\s+)def _create_orchestrator_prompt\\(([^)]+)\\)[^:]*:.*?(?=\\n    def |\\n    async def |\\Z)'
+    old_method_pattern = r'(\s+)def _create_orchestrator_prompt\(([^)]+)\)[^:]*:.*?(?=\n    def |\n    async def |\Z)'
     
     new_methods = '''    async def _generate_dynamic_orchestrator_prompt(
         self,
@@ -114,7 +115,7 @@ Focus on:
 Be specific to THIS competition/project, not generic ML advice."""
 
         try:
-            self._log("🤖 Generating project-specific orchestrator guidance using DeepSeek...")
+            self._log("[AI] Generating project-specific orchestrator guidance using DeepSeek...")
             
             result = await self.deepseek_client.call_agent(
                 system_prompt=system_prompt,
@@ -125,7 +126,7 @@ Be specific to THIS competition/project, not generic ML advice."""
             
             if result['status'] == 'success':
                 dynamic_guidance = result['response']
-                self._log("✅ Dynamic orchestrator guidance generated")
+                self._log("[OK] Dynamic orchestrator guidance generated")
                 
                 base_prompt = self._create_base_orchestrator_prompt(prd, config, domain)
                 
@@ -133,7 +134,7 @@ Be specific to THIS competition/project, not generic ML advice."""
 
 ---
 
-🎯 PROJECT-SPECIFIC GUIDANCE (AI-Generated):
+PROJECT-SPECIFIC GUIDANCE (AI-Generated):
 
 {dynamic_guidance}
 
@@ -144,12 +145,12 @@ Now begin implementation following the above guidance."""
                 return full_prompt
             else:
                 logger.warning(f"Dynamic prompt generation failed: {result.get('error')}")
-                self._log(f"⚠️ Dynamic prompt generation failed, using base prompt")
+                self._log(f"[WARN] Dynamic prompt generation failed, using base prompt")
                 return self._create_base_orchestrator_prompt(prd, config, domain)
                 
         except Exception as e:
             logger.error(f"Error generating dynamic prompt: {e}")
-            self._log(f"⚠️ Error generating dynamic prompt: {e}, using base prompt")
+            self._log(f"[WARN] Error generating dynamic prompt: {e}, using base prompt")
             return self._create_base_orchestrator_prompt(prd, config, domain)
 
     def _create_base_orchestrator_prompt(
@@ -188,11 +189,11 @@ DELIVERABLES:
 - Unit tests and documentation
 
 QUALITY STANDARDS:
-✓ Type hints and docstrings
-✓ Reproducible (seed setting)
-✓ GPU/CPU compatible
-✓ Proper error handling
-✓ Clean, modular code"""
+- Type hints and docstrings
+- Reproducible (seed setting)
+- GPU/CPU compatible
+- Proper error handling
+- Clean, modular code"""
         
         else:
             return f"""You are a senior Python engineer implementing a software project.
@@ -216,10 +217,10 @@ DELIVERABLES:
 - Error handling
 
 QUALITY STANDARDS:
-✓ Type hints and docstrings
-✓ Clean architecture patterns
-✓ PEP8 compliant
-✓ Production-ready"""
+- Type hints and docstrings
+- Clean architecture patterns
+- PEP8 compliant
+- Production-ready"""
 
 '''
     
@@ -232,65 +233,65 @@ QUALITY STANDARDS:
     )
     
     if content == content_modified:
-        print("⚠️ Warning: _create_orchestrator_prompt() method not found or already modified!")
+        print("[WARN] _create_orchestrator_prompt() method not found or already modified!")
         print("   Pattern match failed. Manual application may be needed.")
         print("   See BE-006-IMPLEMENTATION.md for manual instructions.")
     else:
-        print("✅ Method replacement completed")
+        print("[OK] Method replacement completed")
     
     # Step 2: Update the call in execute_prd_loop
-    print("🔧 Step 2: Updating execute_prd_loop() call to use await...")
+    print("[STEP 2] Updating execute_prd_loop() call to use await...")
     
-    old_call = r'orchestrator_prompt = self\\._create_orchestrator_prompt\\('
+    old_call = r'orchestrator_prompt = self\._create_orchestrator_prompt\('
     new_call = 'orchestrator_prompt = await self._generate_dynamic_orchestrator_prompt('
     
     if re.search(old_call, content_modified):
         content_modified = re.sub(old_call, new_call, content_modified)
-        print("✅ execute_prd_loop() call updated")
+        print("[OK] execute_prd_loop() call updated")
     else:
-        print("⚠️ Warning: execute_prd_loop() call not found or already modified!")
+        print("[WARN] execute_prd_loop() call not found or already modified!")
     
     # Write the modified content
-    print("💾 Writing changes to orchestrator.py...")
+    print("[WRITE] Writing changes to orchestrator.py...")
     orchestrator_file.write_text(content_modified, encoding='utf-8')
     
-    new_lines = len(content_modified.split('\\n'))
-    print(f"✅ Changes written successfully")
+    new_lines = len(content_modified.split('\n'))
+    print(f"[OK] Changes written successfully")
     print(f"   Original lines: {original_lines}")
     print(f"   New lines: {new_lines}")
     print(f"   Diff: {new_lines - original_lines:+d} lines")
     
     # Verification
-    print("\\n🔍 Verification:")
+    print("\n[VERIFY] Checking changes...")
     if "async def _generate_dynamic_orchestrator_prompt" in content_modified:
-        print("✅ New async method found")
+        print("[OK] New async method found")
     else:
-        print("❌ async method NOT found")
+        print("[ERROR] async method NOT found")
         
     if "def _create_base_orchestrator_prompt" in content_modified:
-        print("✅ Base prompt method found")
+        print("[OK] Base prompt method found")
     else:
-        print("❌ Base prompt method NOT found")
+        print("[ERROR] Base prompt method NOT found")
         
     if "await self._generate_dynamic_orchestrator_prompt" in content_modified:
-        print("✅ Async call updated")
+        print("[OK] Async call updated")
     else:
-        print("❌ Async call NOT found")
+        print("[ERROR] Async call NOT found")
     
-    print("\\n" + "=" * 60)
-    print("✅ BE-006 application complete!")
+    print("\n" + "=" * 60)
+    print("[SUCCESS] BE-006 application complete!")
     print("=" * 60)
-    print("\\nNext steps:")
+    print("\nNext steps:")
     print("1. Review changes: git diff src/orchestrator.py")
     print("2. Test: python -m py_compile src/orchestrator.py")
     print("3. Commit: git add src/orchestrator.py && git commit -m 'Apply BE-006 dynamic orchestrator'")
-    print(f"\\nBackup saved: {backup_file}")
+    print(f"\nBackup saved: {backup_file}")
     print("To restore: cp src/orchestrator.py.backup src/orchestrator.py")
     
     return True
 
 if __name__ == "__main__":
-    print("="  * 60)
+    print("=" * 60)
     print("BE-006 Dynamic Orchestrator - Automatic Application")
     print("=" * 60)
     print()
@@ -298,13 +299,13 @@ if __name__ == "__main__":
     try:
         success = apply_be006()
         if success:
-            print("\\n🎉 Success! BE-006 has been applied.")
+            print("\n[SUCCESS] BE-006 has been applied!")
         else:
-            print("\\n❌ Failed to apply BE-006.")
+            print("\n[ERROR] Failed to apply BE-006.")
             print("   See BE-006-IMPLEMENTATION.md for manual instructions.")
     except Exception as e:
-        print(f"\\n❌ Error: {e}")
-        print("\\nFalling back to manual application.")
+        print(f"\n[ERROR] {e}")
+        print("\nFalling back to manual application.")
         print("See BE-006-IMPLEMENTATION.md for instructions.")
         import traceback
         traceback.print_exc()
