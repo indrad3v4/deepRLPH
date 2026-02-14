@@ -14,9 +14,10 @@ RALPH UI - 3-Step Project Creation Wizard + Enhanced Execution View
 ✅ UI-009: Two-phase meta-prompting for implementation-ready suggestions
 ✅ UI-010: Phase 2B PRD backlog expansion with executable tasks
 
-Architecture: Tkinter + asyncio event loop integration
-Deepseek integration for AI-powered project configuration
-Meta-prompting for detailed, implementation-ready specifications
+Stage 2/5 UX direction:
+- Primary refinement unit is the Project (PRD/backlog), not ad hoc "tasks".
+- The old Task Refinement tab is now a Project Refinement surface fed by
+  selected project context and wizard-generated PRD.
 """
 
 import tkinter as tk
@@ -45,6 +46,18 @@ except ImportError:
     from agent_coordinator import AgentCoordinator
     from prompt_generator import PromptGenerator
     from ai_suggestion_validator import SuggestionValidator
+
+# UX refinement helpers (Stage 2)
+try:
+    from .ui_refinement_switch import (
+        get_default_refinement_tab_index,
+        build_project_refinement_placeholder_text,
+    )
+except ImportError:
+    from ui_refinement_switch import (
+        get_default_refinement_tab_index,
+        build_project_refinement_placeholder_text,
+    )
 
 logger = logging.getLogger("RalphUI")
 
@@ -1129,7 +1142,7 @@ Respond ONLY with valid JSON, no markdown."""
 
 
 class RalphUI(tk.Tk):
-    """Main RALPH UI with enhanced project wizard"""
+    """Main RALPH UI with enhanced project wizard and project-centric refinement"""
     
     def __init__(self, orchestrator: Optional[RalphOrchestrator] = None, width: int = 1400, height: int = 900):
         super().__init__()
@@ -1178,7 +1191,7 @@ class RalphUI(tk.Tk):
         self._create_layout()
         self._refresh_projects()
         
-        logger.info("✅ RALPH UI initialized with 3-step wizard + Phase 2B PRD")
+        logger.info("✅ RALPH UI initialized with 3-step wizard + Phase 2B PRD + project refinement")
     
     def _setup_styles(self):
         """Configure professional UI styles"""
@@ -1217,6 +1230,12 @@ class RalphUI(tk.Tk):
         self._create_execution_tab()
         self._create_validation_tab()
         self._create_logs_tab()
+        
+        # Default to refinement tab once notebook is built (Stage 2)
+        try:
+            self.notebook.select(get_default_refinement_tab_index())
+        except Exception:
+            pass
     
     def _new_project_dialog(self):
         """Open 3-step project creation wizard (UI-001)"""
@@ -1234,7 +1253,7 @@ class RalphUI(tk.Tk):
         ttk.Label(container, text="AI-Powered Multi-Agent Architecture Orchestrator", font=('Arial', 14)).pack(pady=10)
         
         workflow = """Workflow:
-1️⃣  Create Project → 2️⃣  Refine Task → 3️⃣  Execute Agents → 4️⃣  Validate Code
+1️⃣  Create Project → 2️⃣  Refine Project (PRD) → 3️⃣  Execute Agents → 4️⃣  Validate / Observe
 
 Features:
 🔄 Real-time execution with 4 parallel agents
@@ -1252,7 +1271,7 @@ Features:
     
     def _show_docs(self):
         """Show documentation"""
-        messagebox.showinfo("Documentation", "Check README.md and PHASE2_IMPLEMENTATION.md in the deepRLPH repository.")
+        messagebox.showinfo("Documentation", "Check README.md and docs/IMPLEMENTATION_SUMMARY.md in the deepRLPH repository.")
     
     def _create_projects_tab(self):
         """Projects management tab with KPI column (UI-006)"""
@@ -1350,7 +1369,23 @@ Features:
                 break
         
         logger.info(f"📁 Selected project: {project_name}")
-        messagebox.showinfo("Project Loaded", f"Project '{project_name}' loaded. Go to Task Refinement tab to continue.")
+        
+        # Sync refinement text box with project context
+        if hasattr(self, 'task_text'):
+            try:
+                placeholder = build_project_refinement_placeholder_text(self.current_project)
+                self.task_text.delete('1.0', 'end')
+                self.task_text.insert('1.0', placeholder)
+            except Exception:
+                pass
+        
+        # Jump directly to refinement tab for better UX
+        try:
+            self.notebook.select(get_default_refinement_tab_index())
+        except Exception:
+            pass
+        
+        messagebox.showinfo("Project Loaded", f"Project '{project_name}' loaded. Use Project Refinement to adjust its PRD/backlog.")
     
     def _delete_project(self):
         """Delete selected project"""
@@ -1377,25 +1412,32 @@ Features:
                     break
     
     def _create_task_refinement_tab(self):
-        """Task refinement tab"""
+        """Project-centric refinement tab (evolved from Task Refinement)."""
         refinement = ttk.Frame(self.notebook)
-        self.notebook.add(refinement, text="📝 Task Refinement")
+        self.notebook.add(refinement, text="📋 Project Refinement")
         
         container = ttk.Frame(refinement)
         container.pack(fill='both', expand=True, padx=20, pady=20)
         
-        ttk.Label(container, text="Task Refinement", font=('Arial', 18, 'bold')).pack(pady=10)
-        ttk.Label(container, text="Describe your task and generate PRD", font=('Arial', 11)).pack(pady=5)
+        ttk.Label(container, text="Project Refinement", font=('Arial', 18, 'bold')).pack(pady=10)
+        ttk.Label(container, text="Refine your project's PRD/backlog", font=('Arial', 11)).pack(pady=5)
         
-        # Task input
-        ttk.Label(container, text="Task Description:", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(20, 5))
+        # Project-level refinement request
+        ttk.Label(container, text="Refinement Request (optional):", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(20, 5))
         self.task_text = scrolledtext.ScrolledText(container, height=10, width=100, font=('Consolas', 10))
         self.task_text.pack(fill='both', expand=True, pady=5)
+        
+        # Initial placeholder based on current project (if any)
+        try:
+            placeholder = build_project_refinement_placeholder_text(self.current_project)
+            self.task_text.insert('1.0', placeholder)
+        except Exception:
+            pass
         
         # Buttons
         btn_frame = ttk.Frame(container)
         btn_frame.pack(pady=20)
-        ttk.Button(btn_frame, text="🧠 Refine Task & Generate PRD", command=self._refine_task).pack(side='left', padx=5)
+        ttk.Button(btn_frame, text="🧠 Refine Project & Generate PRD", command=self._refine_task).pack(side='left', padx=5)
         ttk.Button(btn_frame, text="📄 View PRD", command=self._view_prd).pack(side='left', padx=5)
         
         # PRD preview
@@ -1404,15 +1446,13 @@ Features:
         self.prd_preview.pack(fill='both', expand=True, pady=5)
     
     def _refine_task(self):
-        """Refine task and generate PRD"""
+        """Refine project and generate PRD (project-centric)."""
         if not self.current_project:
             messagebox.showwarning("No Project", "Please select a project first")
             return
         
+        # Empty request now means: "refine using existing PRD/backlog and project context".
         task = self.task_text.get('1.0', 'end').strip()
-        if not task:
-            messagebox.showwarning("Empty Task", "Please enter a task description")
-            return
         
         # Get project_id from current project
         projects = self.orchestrator.list_projects()
@@ -1433,17 +1473,17 @@ Features:
                 prd_summary = json.dumps(result['prd'], indent=2)
                 self.after(0, lambda: self.prd_preview.delete('1.0', 'end'))
                 self.after(0, lambda: self.prd_preview.insert('1.0', prd_summary))
-                self.after(0, lambda: messagebox.showinfo("Success", "PRD generated! Go to Execution tab to run agents."))
+                self.after(0, lambda: messagebox.showinfo("Success", "Project PRD updated! Go to Execution tab to run agents."))
             else:
                 self.after(0, lambda: self.after(0, lambda: messagebox.showerror("Error", result.get('error', 'Unknown error'))))
         
         self.async_thread.submit(refine())
-        messagebox.showinfo("Processing", "Refining task... This may take 30-60 seconds.")
+        messagebox.showinfo("Processing", "Refining project PRD... This may take 30-60 seconds.")
     
     def _view_prd(self):
         """View full PRD in popup"""
         if not self.current_prd:
-            messagebox.showinfo("No PRD", "No PRD generated yet. Refine a task first.")
+            messagebox.showinfo("No PRD", "No PRD generated yet. Refine a project first.")
             return
         
         popup = tk.Toplevel(self)
@@ -1495,7 +1535,7 @@ Features:
     def _execute_agents(self):
         """Execute agents"""
         if not self.current_prd:
-            messagebox.showwarning("No PRD", "Generate a PRD first in Task Refinement tab")
+            messagebox.showwarning("No PRD", "Generate a PRD first in Project Refinement tab")
             return
         
         if self.execution_running:
