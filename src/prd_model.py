@@ -1,271 +1,164 @@
 # -*- coding: utf-8 -*-
 """
-prd_model.py - PRD Item Status Tracking Model
+prd_model.py - Canonical PRD data model and normalizer (DR-03, DR-05)
 
-Core data model for tracking execution state of PRD items through entire lifecycle.
+Unifies multiple PRD shapes into a single, validated JSON structure:
+- Existing PRDGenerator output with `user_stories`
+- Wizard-style backlog with `backlog` + `item_id` + `verification_command`
 
-ITEM-001: PRD Item Status Tracking Model
+This becomes the single source of truth for `prd.json` files.
 """
 
-from dataclasses import dataclass, field, asdict
-from enum import Enum
-from typing import List, Dict, Optional, Any
-from datetime import datetime
-from pathlib import Path
-import json
-import threading
-import logging
+from __future__ import annotations
 
-logger = logging.getLogger(__name__)
+from dataclasses import asdict
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, Field, validator
 
 
-class PRDItemStatus(str, Enum):
-    """Status of a PRD item in execution lifecycle."""
-    PENDING = "PENDING"
-    IN_PROGRESS = "IN_PROGRESS"
-    TESTING = "TESTING"
-    PASS = "PASS"
-    FAIL = "FAIL"
+class PRDUserStory(BaseModel):
+    """Canonical representation of a single PRD item.
 
-
-@dataclass
-class PRDItem:
-    """Single PRD item with tracking metadata.
-    
-    Attributes:
-        item_id: Unique identifier (e.g., "ITEM-001")
-        title: Short descriptive title
-        priority: Priority level (1=highest)
-        status: Current execution status
-        acceptance_criteria: List of acceptance criteria strings
-        verification_command: Shell command to verify completion
-        files_touched: List of file paths expected to be modified
-        start_time: ISO timestamp when item execution started
-        end_time: ISO timestamp when item completed/failed
-        attempt_count: Number of execution attempts
-        error_log: Error messages from failed attempts
-        agent_id: ID of agent currently/last handling this item
+    The goal is to be tolerant to upstream variants while keeping
+    downstream execution strict and predictable.
     """
-    item_id: str
-    title: str
-    priority: int
-    status: PRDItemStatus = PRDItemStatus.PENDING
-    acceptance_criteria: List[str] = field(default_factory=list)
-    verification_command: str = ""
-    files_touched: List[str] = field(default_factory=list)
-    start_time: Optional[str] = None
-    end_time: Optional[str] = None
-    attempt_count: int = 0
-    error_log: List[str] = field(default_factory=list)
-    agent_id: Optional[str] = None
-    
+
+    id: str = Field(..., description="Stable identifier like ML-001 or ITEM-001")
+    title: str = Field(..., description="Short human-readable title")
+    description: str = Field("", description="Longer functional description / why")
+    acceptance_criteria: List[str] = Field(default_factory=list)
+    verification: str = Field("", description="CLI command or manual check description")
+    why: str = Field("", description="Business or technical motivation")
+    files_touched: List[str] = Field(default_factory=list)
+
+    # Execution-related fields (used by Execution Engine)
+    status: str = Field("todo", description="todo | in_progress | done | blocked")
+    attempts: int = 0
+    errors: List[str] = Field(default_factory=list)
+
+    @validator("status", pre=True, always=True)
+    def _normalize_status(cls, value: str) -> str:  # type: ignore[override]
+        if not value:
+            return "todo"
+        v = str(value).lower()
+        allowed = {"todo", "in_progress", "in-progress", "done", "blocked"}
+        if v not in allowed:
+            return "todo"
+        # normalize dash vs underscore
+        return v.replace("-", "_")
+
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dict for JSON serialization."""
-        data = asdict(self)
-        data['status'] = self.status.value
-        return data
-    
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "PRDItem":
-        """Create from dict (JSON deserialization)."""
-        if 'status' in data and isinstance(data['status'], str):
-            data['status'] = PRDItemStatus(data['status'])
-        return cls(**data)
-    
-    def mark_in_progress(self, agent_id: str) -> None:
-        """Mark item as in progress."""
-        if self.status != PRDItemStatus.PENDING:
-            raise ValueError(
-                f"Cannot transition from {self.status} to IN_PROGRESS. "
-                f"Must be PENDING."
-            )
-        self.status = PRDItemStatus.IN_PROGRESS
-        self.agent_id = agent_id
-        self.start_time = datetime.now().isoformat()
-        self.attempt_count += 1
-        logger.info(f"[{self.item_id}] Started by {agent_id} (attempt {self.attempt_count})")
-    
-    def mark_testing(self) -> None:
-        """Mark item as in testing phase."""
-        if self.status != PRDItemStatus.IN_PROGRESS:
-            raise ValueError(
-                f"Cannot transition from {self.status} to TESTING. "
-                f"Must be IN_PROGRESS."
-            )
-        self.status = PRDItemStatus.TESTING
-        logger.info(f"[{self.item_id}] Running verification: {self.verification_command}")
-    
-    def mark_pass(self) -> None:
-        """Mark item as passed."""
-        if self.status not in (PRDItemStatus.IN_PROGRESS, PRDItemStatus.TESTING):
-            raise ValueError(
-                f"Cannot transition from {self.status} to PASS. "
-                f"Must be IN_PROGRESS or TESTING."
-            )
-        self.status = PRDItemStatus.PASS
-        self.end_time = datetime.now().isoformat()
-        logger.info(f"✅ [{self.item_id}] PASS (duration: {self.get_duration():.1f}s)")
-    
-    def mark_fail(self, error: str) -> None:
-        """Mark item as failed."""
-        if self.status not in (PRDItemStatus.IN_PROGRESS, PRDItemStatus.TESTING):
-            raise ValueError(
-                f"Cannot transition from {self.status} to FAIL. "
-                f"Must be IN_PROGRESS or TESTING."
-            )
-        self.status = PRDItemStatus.FAIL
-        self.end_time = datetime.now().isoformat()
-        self.error_log.append(f"[Attempt {self.attempt_count}] {error}")
-        logger.error(f"❌ [{self.item_id}] FAIL: {error}")
-    
-    def reset_for_retry(self) -> None:
-        """Reset status to PENDING for retry."""
-        if self.status != PRDItemStatus.FAIL:
-            raise ValueError(f"Can only retry FAIL items, not {self.status}")
-        self.status = PRDItemStatus.PENDING
-        self.start_time = None
-        self.end_time = None
-        logger.info(f"[{self.item_id}] Reset for retry (attempt {self.attempt_count + 1})")
-    
-    def get_duration(self) -> float:
-        """Get execution duration in seconds."""
-        if not self.start_time:
-            return 0.0
-        start = datetime.fromisoformat(self.start_time)
-        if self.end_time:
-            end = datetime.fromisoformat(self.end_time)
-        else:
-            end = datetime.now()
-        return (end - start).total_seconds()
+        """Return plain dict, keeping only canonical fields.
+
+        Using `dict()` instead of `asdict` to leverage Pydantic's serialization.
+        """
+
+        return self.dict()
 
 
-class PRDBacklog:
-    """Manager for collection of PRD items with thread-safe operations.
-    
-    Attributes:
-        items: List of all PRD items
-        project_id: Associated project identifier
-        created_at: ISO timestamp of backlog creation
-        _lock: Thread lock for concurrent agent access
+class PRDModel(BaseModel):
+    """Canonical PRD representation used for all `prd.json` files.
+
+    This model intentionally mirrors the existing PRDGenerator output
+    but enforces consistency and provides a migration path from
+    wizard-style backlogs.
     """
-    
-    def __init__(self, project_id: str, items: Optional[List[PRDItem]] = None):
-        self.project_id = project_id
-        self.items: List[PRDItem] = items or []
-        self.created_at = datetime.now().isoformat()
-        self._lock = threading.Lock()
-    
-    def add_item(self, item: PRDItem) -> None:
-        """Add item to backlog."""
-        with self._lock:
-            self.items.append(item)
-            logger.info(f"Added {item.item_id} to backlog (total: {len(self.items)})")
-    
-    def get_next_pending(self) -> Optional[PRDItem]:
-        """Get next pending item by priority (thread-safe)."""
-        with self._lock:
-            pending = [item for item in self.items if item.status == PRDItemStatus.PENDING]
-            if not pending:
-                return None
-            # Sort by priority (1 = highest)
-            pending.sort(key=lambda x: x.priority)
-            return pending[0]
-    
-    def get_item_by_id(self, item_id: str) -> Optional[PRDItem]:
-        """Get item by ID."""
-        with self._lock:
-            for item in self.items:
-                if item.item_id == item_id:
-                    return item
-            return None
-    
-    def mark_in_progress(self, item_id: str, agent_id: str) -> bool:
-        """Mark item as in progress (thread-safe)."""
-        with self._lock:
-            item = self.get_item_by_id(item_id)
-            if not item:
-                return False
-            try:
-                item.mark_in_progress(agent_id)
-                return True
-            except ValueError as e:
-                logger.warning(f"Failed to mark {item_id} in progress: {e}")
-                return False
-    
-    def mark_complete(self, item_id: str, success: bool, error: str = "") -> bool:
-        """Mark item as complete (pass/fail)."""
-        with self._lock:
-            item = self.get_item_by_id(item_id)
-            if not item:
-                return False
-            try:
-                if success:
-                    item.mark_pass()
-                else:
-                    item.mark_fail(error)
-                return True
-            except ValueError as e:
-                logger.warning(f"Failed to mark {item_id} complete: {e}")
-                return False
-    
-    def get_statistics(self) -> Dict[str, Any]:
-        """Get execution statistics."""
-        with self._lock:
-            stats = {
-                "total": len(self.items),
-                "pending": sum(1 for i in self.items if i.status == PRDItemStatus.PENDING),
-                "in_progress": sum(1 for i in self.items if i.status == PRDItemStatus.IN_PROGRESS),
-                "testing": sum(1 for i in self.items if i.status == PRDItemStatus.TESTING),
-                "pass": sum(1 for i in self.items if i.status == PRDItemStatus.PASS),
-                "fail": sum(1 for i in self.items if i.status == PRDItemStatus.FAIL),
-                "progress_pct": 0.0,
-            }
-            if stats["total"] > 0:
-                stats["progress_pct"] = (stats["pass"] / stats["total"]) * 100
-            return stats
-    
-    def has_pending_items(self) -> bool:
-        """Check if any pending items remain."""
-        with self._lock:
-            return any(item.status == PRDItemStatus.PENDING for item in self.items)
-    
-    def get_failed_items(self) -> List[PRDItem]:
-        """Get all failed items."""
-        with self._lock:
-            return [item for item in self.items if item.status == PRDItemStatus.FAIL]
-    
-    def save_to_file(self, path: Path) -> None:
-        """Save backlog state to JSON file."""
-        with self._lock:
-            data = {
-                "project_id": self.project_id,
-                "created_at": self.created_at,
-                "items": [item.to_dict() for item in self.items],
-                "statistics": self.get_statistics(),
-            }
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with open(path, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2)
-            logger.info(f"Saved backlog state to {path}")
-    
+
+    task: str = Field("", description="Clarified task or project brief")
+    domain: str = Field("llm-app", description="Project domain, e.g. llm-app, backend_api, time_series")
+    total_items: int = 0
+    user_stories: List[PRDUserStory] = Field(default_factory=list)
+    project_metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    @validator("total_items", always=True)
+    def _sync_total_items(cls, value: int, values: Dict[str, Any]) -> int:  # type: ignore[override]
+        """Ensure `total_items` always matches the number of stories."""
+
+        stories = values.get("user_stories") or []
+        return len(stories)
+
     @classmethod
-    def load_from_file(cls, path: Path) -> "PRDBacklog":
-        """Load backlog state from JSON file."""
-        with open(path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        
-        items = [PRDItem.from_dict(item_data) for item_data in data['items']]
-        backlog = cls(project_id=data['project_id'], items=items)
-        backlog.created_at = data['created_at']
-        logger.info(f"Loaded backlog from {path} ({len(items)} items)")
-        return backlog
-    
+    def from_raw(cls, data: Dict[str, Any]) -> "PRDModel":
+        """Create PRDModel from a loose dict.
+
+        Supported inputs:
+        1) Existing PRDGenerator output with keys:
+           {task, domain, total_items, user_stories, project_metadata}
+        2) Wizard-style backlog with keys:
+           {task?, domain?, backlog: [...], execution_plan?, definition_of_done?, project_metadata?/metadata?}
+        """
+
+        if "user_stories" in data:
+            # Assume near-canonical shape; Pydantic will validate details.
+            return cls(**data)
+
+        # Fallback: backlog-style structure from wizard (Phase 2B)
+        backlog = data.get("backlog") or []
+        task = data.get("task") or data.get("description") or ""
+        domain = data.get("domain", "llm-app")
+        meta = data.get("project_metadata") or data.get("metadata") or {}
+
+        stories: List[PRDUserStory] = []
+        for idx, item in enumerate(backlog, start=1):
+            # Prefer explicit IDs but be tolerant.
+            sid = (
+                item.get("item_id")
+                or item.get("id")
+                or f"ITEM-{idx:03d}"
+            )
+            verification = (
+                item.get("verification_command")
+                or item.get("verification")
+                or ""
+            )
+            files = (
+                item.get("files_touched")
+                or item.get("files")
+                or []
+            )
+
+            story = PRDUserStory(
+                id=str(sid),
+                title=item.get("title", "Untitled"),
+                description=item.get("description") or item.get("why", ""),
+                acceptance_criteria=item.get("acceptance_criteria") or [],
+                verification=verification,
+                why=item.get("why") or "",
+                files_touched=list(files),
+                status=item.get("status", "todo"),
+                attempts=int(item.get("attempts", 0) or 0),
+                errors=item.get("errors") or [],
+            )
+            stories.append(story)
+
+        return cls(
+            task=task,
+            domain=domain,
+            total_items=len(stories),
+            user_stories=stories,
+            project_metadata=meta,
+        )
+
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dict for serialization."""
-        with self._lock:
-            return {
-                "project_id": self.project_id,
-                "created_at": self.created_at,
-                "items": [item.to_dict() for item in self.items],
-                "statistics": self.get_statistics(),
-            }
+        """Return normalized dict suitable for `prd.json` on disk."""
+
+        # We intentionally do not include any helper/alias fields here.
+        return {
+            "task": self.task,
+            "domain": self.domain,
+            "total_items": len(self.user_stories),
+            "user_stories": [s.to_dict() for s in self.user_stories],
+            "project_metadata": self.project_metadata,
+        }
+
+
+def normalize_prd(prd: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize an arbitrary PRD-like dict into canonical shape.
+
+    Used by both backend (orchestrator / PRDGenerator) and future UI flows
+    to guarantee `prd.json` stays structurally consistent across versions.
+    """
+
+    model = PRDModel.from_raw(prd)
+    return model.to_dict()

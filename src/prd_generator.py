@@ -7,6 +7,7 @@ Supports KPI-aware ML competitions and standard API/LLM/Web projects.
 Enhancements in this revision:
 - Accepts optional project_metadata from orchestrator
 - For ML competitions, injects metric/KPI hints into the decomposed stories
+- Uses PRDModel as a single, normalized schema for all PRD output
 """
 
 import logging
@@ -15,12 +16,19 @@ from dataclasses import dataclass, asdict
 import json
 import re
 
+from prd_model import PRDModel, normalize_prd
+
 logger = logging.getLogger("PRDGenerator")
 
 
 @dataclass
 class UserStory:
-    """Single PRD item"""
+    """Single PRD item (legacy internal representation).
+
+    NOTE: External `prd.json` shape is controlled by PRDModel.
+    This dataclass remains as a convenient builder API.
+    """
+
     id: str
     title: str
     description: str
@@ -109,9 +117,10 @@ class PRDGenerator:
             logger.warning("   Using generic decomposition")
             stories = self._decompose_generic(clarified_task, key_reqs)
 
-        logger.info(f"✅ Generated {len(stories)} PRD items")
+        logger.info(f"✅ Generated {len(stories)} PRD items (pre-normalization)")
 
-        prd = {
+        # Build raw PRD dict using legacy shape
+        raw_prd = {
             "task": clarified_task,
             "domain": domain,
             "total_items": len(stories),
@@ -119,7 +128,14 @@ class PRDGenerator:
             "project_metadata": project_meta,
         }
 
-        return prd
+        # DR-03 / DR-05: normalize through PRDModel so that `prd.json` has
+        # a single, canonical structure regardless of generator version.
+        prd_normalized = normalize_prd(raw_prd)
+        logger.info(
+            "📐 PRD normalized via PRDModel: %d items", prd_normalized.get("total_items", 0)
+        )
+
+        return prd_normalized
 
     def _decompose_ml_competition(
         self,
@@ -517,6 +533,6 @@ def generate_prd(
     domain: str = "llm-app",
     project_metadata: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Convenience function to generate PRD"""
+    """Convenience function to generate PRD (normalized)."""
     gen = PRDGenerator()
     return gen.generate(technical_brief, domain, project_metadata)
