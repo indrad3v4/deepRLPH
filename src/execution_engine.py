@@ -598,24 +598,25 @@ Instructions:
 """
 
     async def _call_deepseek(self, system_prompt: str, user_prompt: str) -> str:
+        """Call DeepSeek via the async DeepseekClient using reasoner-compatible API.
+
+        Uses DeepseekClient.call_agent, which supports extended thinking and
+        works with the configured model (e.g. deepseek-reasoner).
+        """
         if not self.deepseek:
             return (
                 "# Error: Deepseek client not initialized\n"
                 "print('Deepseek client is None - cannot generate code')\n"
             )
 
-        response = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: self.deepseek.chat(
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                temperature=0.7,
-                max_tokens=4000,
-            ),
+        # DeepseekClient.call_agent is async and returns a dict with a
+        # 'response' field containing the model output text.
+        result = await self.deepseek.call_agent(
+            system_prompt=system_prompt,
+            user_message=user_prompt,
+            temperature=0.7,
         )
-        return response.get("content", "")
+        return result.get("response", "")
 
     async def _save_code(self, story_id: str, response: str, iteration: int) -> List[str]:
         saved_files: List[str] = []
@@ -692,9 +693,13 @@ Instructions:
                 "output": result.stdout,
             }
         except subprocess.TimeoutExpired:
-            return {"success": False, "error": "Verification timed out (600s)", "output": ""}
+            return {"success": False,
+                    "error": "Verification timed out (600s)",
+                    "output": ""}
         except Exception as e:  # pragma: no cover
-            return {"success": False, "error": f"Verification error: {str(e)}", "output": ""}
+            return {"success": False,
+                    "error": f"Verification error: {str(e)}",
+                    "output": ""}
 
     # ------------------------------------------------------------------
     # PRD + metrics helpers
@@ -780,14 +785,14 @@ Instructions:
         """BE-009: Extract metric from verification output using multiple patterns.
 
         Supports two config formats:
-        
+
         1. Single pattern (backward compatible):
         {
             "name": "weighted_pearson",
             "pattern": "Weighted Pearson: (?P<value>[-+]?\\d*\\.\\d+)",
             "target": 0.35
         }
-        
+
         2. Multiple patterns (BE-009):
         {
             "name": "weighted_pearson",
@@ -798,7 +803,7 @@ Instructions:
             ],
             "target": 0.35
         }
-        
+
         Tries each pattern in order until one matches.
         """
         # BE-009: Try multiple patterns if configured
@@ -806,10 +811,10 @@ Instructions:
             for pattern_config in config["patterns"]:
                 regex = pattern_config.get("regex")
                 group_name = pattern_config.get("group", "value")
-                
+
                 if not regex:
                     continue
-                
+
                 try:
                     match = re.search(regex, output)
                     if match:
@@ -822,10 +827,10 @@ Instructions:
                                 if match.lastindex and match.lastindex >= 1
                                 else None
                             )
-                        
+
                         if raw is None:
                             continue
-                        
+
                         value = float(raw)
                         if not math.isnan(value) and not math.isinf(value):
                             logger.debug(
@@ -838,7 +843,7 @@ Instructions:
                 except Exception as e:
                     logger.debug("Pattern %s failed: %s", regex[:50], e)
                     continue
-            
+
             # No pattern matched
             logger.warning(
                 "No pattern matched for metric %s in output (tried %d patterns)",
@@ -846,12 +851,12 @@ Instructions:
                 len(config["patterns"]),
             )
             return None
-        
+
         # Backward compatible: single pattern
         pattern = config.get("pattern")
         if not pattern:
             return None
-        
+
         try:
             match = re.search(pattern, output)
             if not match:
