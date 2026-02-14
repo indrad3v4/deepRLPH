@@ -779,7 +779,7 @@ Respond ONLY with valid JSON, no markdown."""
                         self.after(0, lambda: self.ask_ai_btn.config(state='normal'))
                     except json.JSONDecodeError as e:
                         self.after(0, lambda: self.ai_status_label.config(
-                            text=f"❌ Failed to parse AI response: {str(e)}",
+                            text="❌ Failed to parse AI response: {str(e)}",
                             fg='#ef4444'
                         ))
                         self.after(0, lambda: self.ask_ai_btn.config(state='normal'))
@@ -1771,6 +1771,10 @@ Features:
 
         ttk.Button(controls, text="⏹️ Stop", command=self._stop_execution).pack(side='left', padx=5)
 
+        # Status line summarizing requested/effective agents and backlog stories
+        self.agents_status_label = ttk.Label(container, text="agents: requested=4, effective=4, stories=0")
+        self.agents_status_label.pack(anchor='w', pady=(5, 0))
+
         # Progress
         ttk.Label(container, text="Progress:", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(20, 5))
         self.exec_progress = ttk.Progressbar(container, mode='determinate', length=800)
@@ -1828,7 +1832,7 @@ Features:
         return 0
 
     def _update_agents_hint(self):
-        """Update technical hint label for agents spinbox."""
+        """Update technical hint label and status line for agents spinbox."""
         if not hasattr(self, "agents_hint_label"):
             return
         backlog_size = self._get_backlog_size()
@@ -1838,10 +1842,16 @@ Features:
             requested = getattr(self, "_last_valid_agents", 1)
         if backlog_size > 0:
             effective = min(requested, backlog_size)
-            text = f"max_agents = min(#stories={backlog_size}, value={requested}) = {effective}"
+            hint_text = f"max_agents = min(#stories={backlog_size}, value={requested}) = {effective}"
         else:
-            text = f"max_agents = min(#stories=0, value={requested})"
-        self.agents_hint_label.config(text=text)
+            effective = requested
+            hint_text = f"max_agents = min(#stories=0, value={requested})"
+        self.agents_hint_label.config(text=hint_text)
+
+        # Update explicit status line in Execution tab
+        if hasattr(self, "agents_status_label"):
+            status_text = f"agents: requested={requested}, effective={effective}, stories={backlog_size}"
+            self.agents_status_label.config(text=status_text)
 
     def _execute_agents(self):
         """Execute agents"""
