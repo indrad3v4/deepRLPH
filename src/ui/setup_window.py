@@ -94,6 +94,14 @@ class AsyncioEventLoopThread(threading.Thread):
         """Submit coroutine to event loop, return future"""
         return asyncio.run_coroutine_threadsafe(coro, self.loop)
 
+    def stop(self):
+        """Request event loop stop"""
+        try:
+            self.loop.call_soon_threadsafe(self.loop.stop)
+        except RuntimeError:
+            # Loop may already be stopped or not running
+            pass
+
 
 class ProjectWizard(tk.Toplevel):
     """3-Step Project Creation / Edit Wizard (UI-001 to UI-010)"""
@@ -1370,6 +1378,9 @@ class RalphUI(tk.Tk):
         self.async_thread = AsyncioEventLoopThread()
         self.async_thread.start()
 
+        # Ensure graceful shutdown of background loop on window close
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+
         # UI State
         self.current_project = None
         self.current_project_id = None
@@ -1689,8 +1700,13 @@ Features:
                 self.after(0, lambda: self.prd_preview.delete('1.0', 'end'))
                 self.after(0, lambda: self.prd_preview.insert('1.0', prd_summary))
                 self.after(0, lambda: messagebox.showinfo("Success", "Project PRD updated! Go to Execution tab to run agents."))
+                # Update execution agents hint after PRD change
+                try:
+                    self._update_agents_hint()
+                except Exception:
+                    pass
             else:
-                self.after(0, lambda: self.after(0, lambda: messagebox.showerror("Error", result.get('error', 'Unknown error'))))
+                self.after(0, lambda: messagebox.showerror("Error", result.get('error', 'Unknown error')))
 
         self.async_thread.submit(refine())
         messagebox.showinfo("Processing", "Refining project PRD... This may take 30-60 seconds.")
@@ -1708,6 +1724,12 @@ Features:
 
         # Keep UI state in sync with what we show
         self.current_prd = prd_to_show
+
+        # Update execution agents hint after PRD change
+        try:
+            self._update_agents_hint()
+        except Exception:
+            pass
 
         popup = tk.Toplevel(self)
         popup.title("Full PRD")
@@ -1732,10 +1754,17 @@ Features:
         controls.pack(fill='x', pady=10)
 
         ttk.Label(controls, text="Agents:").pack(side='left', padx=5)
-        self.agents_spinbox = tk.Spinbox(controls, from_=1, to=8, width=5)
-        self.agents_spinbox.delete(0, 'end')
-        self.agents_spinbox.insert(0, '4')
+        self.agents_var = tk.StringVar(value='4')
+        self._last_valid_agents = 4
+        self.agents_spinbox = tk.Spinbox(controls, from_=1, to=8, width=5, textvariable=self.agents_var)
         self.agents_spinbox.pack(side='left', padx=5)
+        # Update hint when user changes value
+        self.agents_spinbox.bind('<FocusOut>', self._on_agents_change)
+        self.agents_spinbox.bind('<KeyRelease>', self._on_agents_change)
+
+        # Technical hint about effective max agents vs backlog size
+        self.agents_hint_label = ttk.Label(controls, text="max_agents = min(#stories, value)")
+        self.agents_hint_label.pack(side='left', padx=10)
 
         self.exec_btn = ttk.Button(controls, text="▶️ Execute PRD Loop", command=self._execute_agents)
         self.exec_btn.pack(side='left', padx=10)
@@ -1754,6 +1783,65 @@ Features:
         ttk.Label(container, text="Execution Logs:", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(20, 5))
         self.exec_logs = scrolledtext.ScrolledText(container, height=20, width=100, font=('Consolas', 9))
         self.exec_logs.pack(fill='both', expand=True, pady=5)
+
+        # Initialize agents hint based on current PRD (if any)
+        try:
+            self._update_agents_hint()
+        except Exception:
+            pass
+
+    def _on_agents_change(self, event=None):
+        """Validate and normalize agents spinbox input and refresh hint."""
+        value = self.agents_var.get() if hasattr(self, "agents_var") else None
+        if value is None:
+            return
+        try:
+            n = int(value)
+            if n < 1:
+                n = 1
+        except (TypeError, ValueError):
+            # Restore last known good value
+            n = getattr(self, "_last_valid_agents", 1)
+        self._last_valid_agents = n
+        self.agents_var.set(str(n))
+        try:
+            self._update_agents_hint()
+        except Exception:
+            pass
+
+    def _get_backlog_size(self) -> int:
+        """Return number of executable stories/backlog items for current project."""
+        prd = self.current_prd
+        if not prd:
+            cfg = getattr(self.orchestrator, 'current_config', None)
+            meta = getattr(cfg, 'metadata', {}) or {} if cfg else {}
+            prd = meta.get('prd_backlog') or meta.get('prd')
+        if isinstance(prd, dict):
+            backlog = prd.get('backlog')
+            if isinstance(backlog, list):
+                return len(backlog)
+            stories = prd.get('stories')
+            if isinstance(stories, list):
+                return len(stories)
+        elif isinstance(prd, list):
+            return len(prd)
+        return 0
+
+    def _update_agents_hint(self):
+        """Update technical hint label for agents spinbox."""
+        if not hasattr(self, "agents_hint_label"):
+            return
+        backlog_size = self._get_backlog_size()
+        try:
+            requested = int(self.agents_var.get())
+        except (TypeError, ValueError):
+            requested = getattr(self, "_last_valid_agents", 1)
+        if backlog_size > 0:
+            effective = min(requested, backlog_size)
+            text = f"max_agents = min(#stories={backlog_size}, value={requested}) = {effective}"
+        else:
+            text = f"max_agents = min(#stories=0, value={requested})"
+        self.agents_hint_label.config(text=text)
 
     def _execute_agents(self):
         """Execute agents"""
@@ -1778,7 +1866,22 @@ Features:
         self.exec_logs.delete('1.0', 'end')
         self.exec_progress['value'] = 0
 
-        num_agents = int(self.agents_spinbox.get())
+        # Compute effective number of agents based on backlog size
+        backlog_size = self._get_backlog_size()
+        try:
+            requested = int(self.agents_var.get())
+        except (TypeError, ValueError):
+            requested = getattr(self, "_last_valid_agents", 1)
+        self._last_valid_agents = max(1, requested)
+        if backlog_size > 0:
+            num_agents = min(self._last_valid_agents, backlog_size)
+        else:
+            num_agents = self._last_valid_agents
+        # Reflect current clamp in hint/label
+        try:
+            self._update_agents_hint()
+        except Exception:
+            pass
 
         async def log_cb(msg):
             self.after(0, lambda: self.exec_logs.insert('end', msg + '\n'))
@@ -1889,6 +1992,20 @@ Features:
                 logs = self.orchestrator.get_execution_log()
                 f.write('\n'.join(logs))
             messagebox.showinfo("Success", f"Logs saved to {filename}")
+
+    def _on_close(self):
+        """Graceful shutdown for background tasks and window."""
+        try:
+            if hasattr(self, "async_thread") and self.async_thread is not None:
+                try:
+                    self.async_thread.stop()
+                except Exception as e:
+                    logger.warning("Failed to stop async event loop thread: %s", e)
+        finally:
+            try:
+                self.destroy()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
