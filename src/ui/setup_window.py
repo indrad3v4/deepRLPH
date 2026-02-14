@@ -1563,8 +1563,20 @@ Features:
                 if config_file.exists():
                     with open(config_file, 'r') as f:
                         config_data = json.load(f)
-                        self.orchestrator.current_config = ProjectConfig.from_dict(config_data)
+                        config_obj = ProjectConfig.from_dict(config_data)
+                        self.orchestrator.current_config = config_obj
                         self.orchestrator.current_project_dir = Path(proj['path'])
+                        # Try to load PRD/PRD backlog from metadata for Execution/PRD preview
+                        meta = getattr(config_obj, "metadata", {}) or {}
+                        prd_from_meta = meta.get('prd_backlog') or meta.get('prd')
+                        if prd_from_meta:
+                            self.current_prd = prd_from_meta
+                            if hasattr(self, 'prd_preview'):
+                                try:
+                                    self.prd_preview.delete('1.0', 'end')
+                                    self.prd_preview.insert('1.0', json.dumps(prd_from_meta, indent=2))
+                                except Exception:
+                                    pass
                 break
 
         logger.info(f"📁 Selected project: {project_name}")
@@ -1685,9 +1697,17 @@ Features:
 
     def _view_prd(self):
         """View full PRD in popup"""
-        if not self.current_prd:
-            messagebox.showinfo("No PRD", "No PRD generated yet. Refine a project first.")
+        prd_to_show = self.current_prd
+        if not prd_to_show:
+            cfg = getattr(self.orchestrator, 'current_config', None)
+            meta = getattr(cfg, 'metadata', {}) or {} if cfg else {}
+            prd_to_show = meta.get('prd_backlog') or meta.get('prd')
+        if not prd_to_show:
+            messagebox.showinfo("No PRD", "No PRD available yet. Generate it via Project Refinement or the 3-step wizard.")
             return
+
+        # Keep UI state in sync with what we show
+        self.current_prd = prd_to_show
 
         popup = tk.Toplevel(self)
         popup.title("Full PRD")
@@ -1695,7 +1715,7 @@ Features:
 
         text = scrolledtext.ScrolledText(popup, font=('Consolas', 9))
         text.pack(fill='both', expand=True, padx=10, pady=10)
-        text.insert('1.0', json.dumps(self.current_prd, indent=2))
+        text.insert('1.0', json.dumps(prd_to_show, indent=2))
 
     def _create_execution_tab(self):
         """Execution tab"""
@@ -1737,9 +1757,17 @@ Features:
 
     def _execute_agents(self):
         """Execute agents"""
-        if not self.current_prd:
-            messagebox.showwarning("No PRD", "Generate a PRD first in Project Refinement tab")
+        prd_to_run = self.current_prd
+        if not prd_to_run:
+            cfg = getattr(self.orchestrator, 'current_config', None)
+            meta = getattr(cfg, 'metadata', {}) or {} if cfg else {}
+            prd_to_run = meta.get('prd_backlog') or meta.get('prd')
+        if not prd_to_run:
+            messagebox.showwarning("No PRD", "No PRD found for this project. Generate it in Project Refinement or via the 3-step wizard.")
             return
+
+        # Ensure UI state uses the resolved PRD
+        self.current_prd = prd_to_run
 
         if self.execution_running:
             messagebox.showwarning("Already Running", "Execution already in progress")
@@ -1762,7 +1790,7 @@ Features:
 
         async def execute():
             result = await self.orchestrator.execute_prd_loop(
-                prd=self.current_prd,
+                prd=prd_to_run,
                 num_agents=num_agents,
                 log_callback=log_cb,
                 progress_callback=progress_cb
