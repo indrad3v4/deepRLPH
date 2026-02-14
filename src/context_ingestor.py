@@ -79,9 +79,11 @@ class ProjectContext:
         parts: List[str] = []
 
         if self.docs:
-            parts.append("DOCUMENTATION SNIPPETS:\n" + "\n".join(
-                f"- {d.path}: {d.excerpt[:200].replace('\n', ' ')}" for d in self.docs
-            ))
+            doc_lines = []
+            for d in self.docs:
+                excerpt_clean = d.excerpt[:200].replace('\n', ' ')
+                doc_lines.append(f"- {d.path}: {excerpt_clean}")
+            parts.append("DOCUMENTATION SNIPPETS:\n" + "\n".join(doc_lines))
 
         if self.datasets:
             parts.append("DATASETS:\n" + "\n".join(
@@ -89,9 +91,11 @@ class ProjectContext:
             ))
 
         if self.code:
-            parts.append("BASELINE CODE SNIPPETS:\n" + "\n".join(
-                f"- {c.path}: {c.excerpt[:200].replace('\n', ' ')}" for c in self.code
-            ))
+            code_lines = []
+            for c in self.code:
+                excerpt_clean = c.excerpt[:200].replace('\n', ' ')
+                code_lines.append(f"- {c.path}: {excerpt_clean}")
+            parts.append("BASELINE CODE SNIPPETS:\n" + "\n".join(code_lines))
 
         if self.models:
             parts.append("MODEL ARTIFACTS:\n" + "\n".join(
