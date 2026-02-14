@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-execution_engine.py - Sequential Ralph Loop (ENHANCED with BE-008 trace logging)
+execution_engine.py - Sequential Ralph Loop (ENHANCED)
 
 Adds:
 - BE-008: JSONL trace logging for all execution events
+- BE-009: Multi-pattern metric extraction
 - Metric extraction and KPI-oriented status
 """
 
@@ -28,7 +29,7 @@ class ExecutionEngine:
     2. Call Deepseek to implement
     3. Save generated code
     4. Run verification command
-    5. Extract metrics from output when configured
+    5. **BE-009: Extract metrics using multiple regex patterns**
     6. Update prd.json and metrics.json
     7. **BE-008: Log all events to JSONL trace**
     8. Append to progress.txt
@@ -280,7 +281,7 @@ class ExecutionEngine:
                 await self._log("   🧪 Running verification...")
                 verify_result = await self._run_verification(verification)
 
-                # Metric-aware evaluation
+                # Metric-aware evaluation (BE-009: multi-pattern extraction)
                 metric_value: Optional[float] = None
                 metric_pass = True
                 if self.metric_config and verify_result.get("output"):
@@ -482,7 +483,7 @@ Instructions:
             return {"success": False, "error": f"Verification error: {str(e)}", "output": ""}
 
     # ------------------------------------------------------------------
-    # PRD + metrics helpers (unchanged)
+    # PRD + metrics helpers
     # ------------------------------------------------------------------
 
     def _load_prd(self) -> Optional[Dict[str, Any]]:
@@ -568,14 +569,74 @@ Instructions:
             return None
 
     def _extract_metric(self, output: str, config: Dict[str, Any]) -> Optional[float]:
-        """Extract metric from verification output.
+        """BE-009: Extract metric from verification output using multiple patterns.
 
-        config example:
-        {"name": "weighted_pearson", "pattern": "Weighted Pearson: (?P<value>[-+]?\\d*\\.\\d+)", "target": 0.35}
+        Supports two config formats:
+        
+        1. Single pattern (backward compatible):
+        {
+            "name": "weighted_pearson",
+            "pattern": "Weighted Pearson: (?P<value>[-+]?\\d*\\.\\d+)",
+            "target": 0.35
+        }
+        
+        2. Multiple patterns (BE-009):
+        {
+            "name": "weighted_pearson",
+            "patterns": [
+                {"regex": "Weighted Pearson: (?P<value>[-+]?\\d*\\.\\d+)", "group": "value"},
+                {"regex": "WPC: (?P<score>[-+]?\\d*\\.\\d+)", "group": "score"},
+                {"regex": "Score: (?P<val>[-+]?\\d*\\.\\d+)", "group": "val"}
+            ],
+            "target": 0.35
+        }
+        
+        Tries each pattern in order until one matches.
         """
+        # BE-009: Try multiple patterns if configured
+        if "patterns" in config and isinstance(config["patterns"], list):
+            for pattern_config in config["patterns"]:
+                regex = pattern_config.get("regex")
+                group_name = pattern_config.get("group", "value")
+                
+                if not regex:
+                    continue
+                
+                try:
+                    match = re.search(regex, output)
+                    if match:
+                        # Try named group first, fall back to group(1)
+                        try:
+                            raw = match.group(group_name)
+                        except (IndexError, AttributeError):
+                            raw = match.group(1) if match.lastindex and match.lastindex >= 1 else None
+                        
+                        if raw is None:
+                            continue
+                        
+                        value = float(raw)
+                        if not math.isnan(value) and not math.isinf(value):
+                            logger.debug(
+                                "Extracted metric using pattern %s: %s = %f",
+                                regex[:50], config.get("name"), value
+                            )
+                            return value
+                except Exception as e:
+                    logger.debug("Pattern %s failed: %s", regex[:50], e)
+                    continue
+            
+            # No pattern matched
+            logger.warning(
+                "No pattern matched for metric %s in output (tried %d patterns)",
+                config.get("name"), len(config["patterns"])
+            )
+            return None
+        
+        # Backward compatible: single pattern
         pattern = config.get("pattern")
         if not pattern:
             return None
+        
         try:
             match = re.search(pattern, output)
             if not match:
