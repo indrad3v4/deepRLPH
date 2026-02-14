@@ -891,10 +891,28 @@ class RalphOrchestrator:
             log_callback: Optional[Callable] = None,
             progress_callback: Optional[Callable] = None,
     ) -> Dict[str, Any]:
-        """Execute PRD items in parallel (ENHANCED with BE-008 trace logging)"""
+        """Execute PRD items in parallel (ENHANCED with BE-008 trace logging)
+
+        NOTE: Accepts PRD/backlog in multiple shapes (wizard PRD backlog, classic
+        PRD with user_stories) and normalizes it into canonical Ralph
+        format saved to prd.json for the ExecutionEngine.
+        """
         logger.info("🔍 [DEBUG] execute_prd_loop() CALLED")
 
         try:
+            # Normalize incoming PRD/backlog into canonical Ralph format
+            canonical_prd = self._normalize_prd_for_engine(prd)
+
+            # Persist canonical PRD to prd.json so ExecutionEngine can consume it
+            if self.current_project_dir:
+                prd_file = self.current_project_dir / "prd.json"
+                try:
+                    with open(prd_file, "w", encoding="utf-8") as f:
+                        json.dump(canonical_prd, f, indent=2)
+                    logger.info("💾 Saved canonical PRD to %s", prd_file)
+                except Exception as e:
+                    logger.warning("⚠️ Failed to write canonical prd.json: %s", e)
+
             execution_id = f"exec_{self._generate_project_id('')}"
             logger.info(f"🔍 [DEBUG] Generated execution_id: {execution_id}")
 
@@ -903,7 +921,10 @@ class RalphOrchestrator:
                 project_id=self.current_config.name if self.current_config else "unknown",
                 start_time=datetime.now().isoformat(),
                 num_agents=num_agents,
-                total_items=prd.get("total_items", 0),
+                total_items=canonical_prd.get(
+                    "total_items",
+                    len(canonical_prd.get("user_stories", [])),
+                ),
             )
             self.executions[execution_id] = exec_state
             logger.info("🔍 [DEBUG] ExecutionState created")
@@ -923,8 +944,8 @@ class RalphOrchestrator:
             logger.info(f"📝 BE-008: Trace logging to {trace_file}")
 
             logger.info("🔍 [DEBUG] Partitioning PRD items...")
-            partitioned = self._partition_prd_items(prd, num_agents)
-            total_user_stories = len(prd.get('user_stories', []))
+            partitioned = self._partition_prd_items(canonical_prd, num_agents)
+            total_user_stories = len(canonical_prd.get('user_stories', []))
             logger.info(f"🔍 [DEBUG] Partitioned {total_user_stories} stories")
 
             exec_state.add_log(f"📊 Partitioned {total_user_stories} user stories across {num_agents} agents")
@@ -934,7 +955,7 @@ class RalphOrchestrator:
 
             logger.info("🔍 [DEBUG] Creating orchestrator prompt...")
             orchestrator_prompt = await self._generate_dynamic_orchestrator_prompt(
-                prd=prd,
+                prd=canonical_prd,
                 config=self.current_config,
                 domain=self.current_config.domain if self.current_config else "web_app"
             )
@@ -1117,15 +1138,76 @@ class RalphOrchestrator:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         return f"{safe_name}_{timestamp}"
 
+    def _normalize_prd_for_engine(self, prd: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize various PRD/backlog shapes into canonical Ralph format.
+
+        Supports:
+        - Classic PRD with `user_stories` list
+        - Wizard-style PRD backlog with `backlog` list
+        - Generic lists under `items`
+        """
+        if not isinstance(prd, dict):
+            return {"user_stories": [], "total_items": 0}
+
+        stories: List[Dict[str, Any]] = []
+
+        # Already canonical
+        if "user_stories" in prd and isinstance(prd["user_stories"], list):
+            stories = prd["user_stories"]
+
+        # Wizard Phase 2B backlog: { "backlog": [ {item_id, title, acceptance_criteria, ...}, ... ] }
+        elif "backlog" in prd and isinstance(prd["backlog"], list):
+            for idx, item in enumerate(prd["backlog"], 1):
+                if not isinstance(item, dict):
+                    continue
+                story_id = item.get("item_id") or f"ITEM-{idx:03d}"
+                stories.append(
+                    {
+                        "id": story_id,
+                        "title": item.get("title", ""),
+                        "description": item.get("why", "") or item.get("description", ""),
+                        "acceptance_criteria": item.get("acceptance_criteria", []),
+                        "verification": item.get("verification_command", ""),
+                        "verification_type": item.get("verification_type", "automated"),
+                        "files_touched": item.get("files_touched", []),
+                        "priority": item.get("priority", "medium"),
+                        "status": item.get("status", "todo"),
+                    }
+                )
+
+        # Generic items list
+        elif "items" in prd and isinstance(prd["items"], list):
+            for idx, item in enumerate(prd["items"], 1):
+                if not isinstance(item, dict):
+                    continue
+                story_id = item.get("id") or f"ITEM-{idx:03d}"
+                stories.append(
+                    {
+                        "id": story_id,
+                        "title": item.get("title", ""),
+                        "description": item.get("description", ""),
+                        "acceptance_criteria": item.get("acceptance_criteria", []),
+                        "verification": item.get("verification", ""),
+                        "files_touched": item.get("files_touched", []),
+                        "priority": item.get("priority", "medium"),
+                        "status": item.get("status", "todo"),
+                    }
+                )
+
+        canonical = dict(prd)
+        canonical["user_stories"] = stories
+        canonical["total_items"] = canonical.get("total_items", len(stories))
+        return canonical
+
     def _partition_prd_items(self, prd: Dict[str, Any], num_agents: int) -> Dict[str, List[Dict[str, Any]]]:
         """Partition PRD items across agents"""
         stories = prd.get('user_stories', [])
-        partition_size = max(1, len(stories) // num_agents)
+        partition_size = max(1, len(stories) // num_agents) if num_agents > 0 else len(stories)
 
         partitions = {}
-        for i in range(num_agents):
+        for i in range(max(1, num_agents)):
             start_idx = i * partition_size
-            end_idx = start_idx + partition_size if i < num_agents - 1 else len(stories)
+            end_idx = start_idx + partition_size if i < max(1, num_agents) - 1 else len(stories)
             agent_id = f"agent_{i + 1}"
             partitions[agent_id] = stories[start_idx:end_idx]
 
