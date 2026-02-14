@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-execution_engine.py - Sequential Ralph Loop with Metric Awareness
+execution_engine.py - Sequential Ralph Loop (ENHANCED with BE-008 trace logging)
 
-Adds metric extraction and KPI-oriented status for ML and non-ML projects.
+Adds:
+- BE-008: JSONL trace logging for all execution events
+- Metric extraction and KPI-oriented status
 """
 
 import asyncio
@@ -19,7 +21,7 @@ logger = logging.getLogger("ExecutionEngine")
 
 
 class ExecutionEngine:
-    """Sequential Ralph Loop Engine with domain metrics.
+    """Sequential Ralph Loop Engine with domain metrics + trace logging.
 
     Responsibilities:
     1. Pick next story (status == "todo")
@@ -28,8 +30,9 @@ class ExecutionEngine:
     4. Run verification command
     5. Extract metrics from output when configured
     6. Update prd.json and metrics.json
-    7. Append to progress.txt
-    8. Repeat until all pass or time/iterations exhausted
+    7. **BE-008: Log all events to JSONL trace**
+    8. Append to progress.txt
+    9. Repeat until all pass or time/iterations exhausted
     """
 
     def __init__(
@@ -50,12 +53,15 @@ class ExecutionEngine:
         self.deepseek = deepseek_client
         self.coordinator = agent_coordinator
 
+        # BE-008: Trace logger (set by orchestrator)
+        self.trace_logger = None
+
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         # Load metric config if exists
         self.metric_config = self._load_metrics_config()
 
-        logger.info("✅ ExecutionEngine initialized (Sequential Ralph Loop + metrics)")
+        logger.info("✅ ExecutionEngine initialized (Sequential Ralph Loop + metrics + traces)")
         logger.info(f"   Project: {self.project_dir}")
         logger.info(f"   Output: {self.output_dir}")
         if self.metric_config:
@@ -97,6 +103,10 @@ class ExecutionEngine:
         await self._log(f"   Total stories: {total_stories}")
         await self._log("")
 
+        # BE-008: Log agent start (single agent for sequential loop)
+        if self.trace_logger:
+            self.trace_logger.agent_start("agent_1", assigned_items=total_stories)
+
         iteration = 0
         max_iterations = max(total_stories * 2, 1)
         completed_items: List[Dict[str, Any]] = []
@@ -116,11 +126,17 @@ class ExecutionEngine:
             await self._log(f"📌 Iteration {iteration}: {story_id} - {story_title}")
             await self._log("")
 
+            # BE-008: Log item start
+            if self.trace_logger:
+                self.trace_logger.item_start("agent_1", story_id, story_title)
+
+            start_time = datetime.now()
             result = await self._execute_story(
                 story=story,
                 orchestrator_prompt=orchestrator_prompt,
                 iteration=iteration,
             )
+            duration = (datetime.now() - start_time).total_seconds()
 
             completed_count = len(
                 [s for s in prd["user_stories"] if s.get("status") == "done"]
@@ -138,6 +154,15 @@ class ExecutionEngine:
                     }
                 )
                 await self._log(f"   ✅ Story {story_id} PASSED")
+
+                # BE-008: Log item complete
+                if self.trace_logger:
+                    self.trace_logger.item_complete(
+                        "agent_1",
+                        story_id,
+                        duration_seconds=duration,
+                        files_created=result.get("files", [])
+                    )
             else:
                 failed_items.append(
                     {
@@ -150,6 +175,15 @@ class ExecutionEngine:
                 await self._log(
                     f"   ❌ Story {story_id} FAILED: {result.get('error', 'Unknown')}"
                 )
+
+                # BE-008: Log item fail
+                if self.trace_logger:
+                    self.trace_logger.item_fail(
+                        "agent_1",
+                        story_id,
+                        error_message=result.get('error', 'Unknown'),
+                        attempt=story.get('attempts', 1)
+                    )
 
             await self._log("")
 
@@ -167,6 +201,24 @@ class ExecutionEngine:
                     await self._log(
                         f"   📈 Current {self.metric_config['name']}: {latest_metric:.4f}"
                     )
+
+                    # BE-008: Log metric update
+                    if self.trace_logger:
+                        self.trace_logger.metric_update(
+                            "agent_1",
+                            self.metric_config['name'],
+                            latest_metric,
+                            target=float(self.metric_config.get('target', 0.0))
+                        )
+
+        # BE-008: Log agent finish
+        if self.trace_logger:
+            self.trace_logger.agent_finish(
+                "agent_1",
+                completed_items=len(completed_items),
+                failed_items=len(failed_items),
+                duration_seconds=duration
+            )
 
         await self._progress(100)
         await self._log("")
@@ -198,7 +250,7 @@ class ExecutionEngine:
         }
 
     # ------------------------------------------------------------------
-    # Story execution
+    # Story execution (unchanged from original except metric logging)
     # ------------------------------------------------------------------
 
     async def _execute_story(
@@ -294,7 +346,7 @@ class ExecutionEngine:
             return {"status": "error", "error": str(e)}
 
     # ------------------------------------------------------------------
-    # Deepseek + code saving
+    # Deepseek + code saving (unchanged)
     # ------------------------------------------------------------------
 
     def _create_story_prompt(self, story: Dict[str, Any]) -> str:
@@ -430,7 +482,7 @@ Instructions:
             return {"success": False, "error": f"Verification error: {str(e)}", "output": ""}
 
     # ------------------------------------------------------------------
-    # PRD + metrics helpers
+    # PRD + metrics helpers (unchanged)
     # ------------------------------------------------------------------
 
     def _load_prd(self) -> Optional[Dict[str, Any]]:
