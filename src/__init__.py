@@ -4,15 +4,28 @@
 Stage 4 (observability & UX machine):
 - exposes `open_observability_dashboard` at package level for easy import
   from external tools / RalphUI.
+
+Stage 5 (templates & UX polish):
+- exposes project template helpers so UIs can offer one-click presets.
 """
 
 from pathlib import Path
 from typing import Any
 
 from .observability_dashboard import open_observability_dashboard  # noqa: F401
+from .project_templates import (  # noqa: F401
+    list_project_templates,
+    get_project_template,
+    apply_template_to_project_data,
+)
 
 
-__all__ = ["open_observability_dashboard"]
+__all__ = [
+    "open_observability_dashboard",
+    "list_project_templates",
+    "get_project_template",
+    "apply_template_to_project_data",
+]
 
 
 def get_project_dir_from_orchestrator(orchestrator: Any) -> Path:
