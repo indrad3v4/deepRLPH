@@ -1061,6 +1061,48 @@ class RalphOrchestrator:
                 "error": error_msg,
             }
 
+    def list_projects(self) -> List[Dict[str, Any]]:
+        """List all projects in workspace"""
+        projects_dir = self.workspace / "projects"
+        if not projects_dir.exists():
+            return []
+
+        projects = []
+        for project_path in projects_dir.iterdir():
+            if not project_path.is_dir():
+                continue
+
+            config_file = project_path / "config.json"
+            if not config_file.exists():
+                continue
+
+            try:
+                with open(config_file, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+
+                projects.append({
+                    "name": config.get("name", project_path.name),
+                    "project_id": project_path.name,
+                    "path": str(project_path),
+                    "project_type": config.get("project_type", "api_dev"),
+                    "domain": config.get("domain", ""),
+                    "framework": config.get("framework", ""),
+                    "created_at": config.get("timestamp", ""),
+                })
+            except Exception as e:
+                logger.warning(f"Failed to load project {project_path}: {e}")
+                continue
+
+        return sorted(projects, key=lambda p: p.get("created_at", ""), reverse=True)
+
+    def get_execution_log(self) -> List[str]:
+        """Get execution log"""
+        return self.execution_log
+
+    def clear_execution_log(self) -> None:
+        """Clear execution log"""
+        self.execution_log.clear()
+
     # =========================================================================
     # HELPER METHODS
     # =========================================================================
@@ -1129,3 +1171,32 @@ Guidelines:
             message = message % args
         logger.info(message)
         self.execution_log.append(message)
+
+
+# ============================================================================
+# FACTORY FUNCTION
+# ============================================================================
+
+def get_orchestrator(
+    workspace_dir: Optional[Path] = None,
+    deepseek_client: Optional[Any] = None,
+    execution_engine: Optional[Any] = None,
+    agent_coordinator: Optional[Any] = None,
+) -> RalphOrchestrator:
+    """Factory function to create RalphOrchestrator instance.
+    
+    Args:
+        workspace_dir: Optional workspace directory path
+        deepseek_client: Optional DeepSeek client instance
+        execution_engine: Optional execution engine instance
+        agent_coordinator: Optional agent coordinator instance
+    
+    Returns:
+        RalphOrchestrator instance
+    """
+    return RalphOrchestrator(
+        workspace_dir=workspace_dir,
+        deepseek_client=deepseek_client,
+        execution_engine=execution_engine,
+        agent_coordinator=agent_coordinator,
+    )
