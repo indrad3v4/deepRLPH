@@ -19,6 +19,7 @@ from typing import Callable, Optional, Dict, Any, List
 from datetime import datetime
 import re
 import math
+from prd_model import PRDItem
 
 from agent_profiles import AgentProfileStore, AgentProfile
 
@@ -439,46 +440,59 @@ class ExecutionEngine:
         story_id = story.get("id", "unknown")
         try:
             await self._log(
-                f"   🤖 [agent={agent_id}] Calling DeepSeek to generate code..."
+                f"   🤖 [agent={agent_id}] Handing control to Autonomous Tool Loop..."
             )
 
-            base_user_prompt = self._create_story_prompt(story)
-
-            # Enrich user prompt with agent assignment for better specialization
-            user_prompt = (
-                f"You are the assigned agent for this story.\n"
-                f"Agent ID: {agent_id}\n"
-                f"Agent Name: {agent_profile.name}\n"
-                f"Role: {agent_profile.role}\n"
-                f"Primary KPI focus: {agent_profile.metric_focus or 'project-level success'}.\n"
-                f"This specific story is currently assigned to you; implement it according to your profile.\n\n"
-                f"{base_user_prompt}"
+            # Convert dictionary story to PRDItem for the Coordinator
+            item = PRDItem(
+                item_id=story_id,
+                title=story.get("title", "Untitled"),
+                priority=story.get("priority", 1),
+                acceptance_criteria=story.get("acceptance_criteria", []),
+                verification_command=story.get("verification", ""),
+                files_touched=story.get("files_touched", [])
             )
 
-            response = await self._call_deepseek(
-                system_prompt=orchestrator_prompt,
-                user_prompt=user_prompt,
+            # Delegate completely to the Agent Coordinator's tool loop
+            code_result = await self.coordinator.assign_prd_item(
+                item=item,
+                agent_id=agent_id,
+                project_dir=self.project_dir,
+                deepseek_client=self.deepseek,
+                log_callback=self._log
             )
 
-            await self._log(
-                f"   💬 [agent={agent_id}] Received response ({len(response)} chars)"
-            )
+            files = code_result.get("files_created", [])
 
-            files = await self._save_code(story_id, response, iteration)
-            await self._log(
-                f"   💾 [agent={agent_id}] Saved {len(files)} file(s)"
-            )
+            # If the loop failed (e.g., max iterations reached)
+            if code_result.get("status") != "success":
+                error_msg = code_result.get("error", "Agent loop failed to complete task.")
+                story["attempts"] = story.get("attempts", 0) + 1
+                story.setdefault("errors", []).append(error_msg)
+                self._update_prd_story(
+                    story_id, status="failed", passes=False, attempts=story["attempts"], errors=story["errors"]
+                )
+                await self._append_progress(
+                    story_id=story_id, status="failed", learning=f"[agent={agent_id}] {error_msg}"
+                )
+                return {
+                    "status": "failed",
+                    "error": error_msg,
+                    "files": files,
+                    "metric_value": None,
+                }
 
+            # If the agent called finish_task, run official verification to extract KPI metrics
             verification = story.get("verification", "")
             metric_value: Optional[float] = None
 
             if verification and verification.strip():
                 await self._log(
-                    f"   🧪 [agent={agent_id}] Running verification..."
+                    f"   🧪 [agent={agent_id}] Agent finished. Running official verification for metrics..."
                 )
                 verify_result = await self._run_verification(verification)
 
-                # Metric-aware evaluation (BE-009: multi-pattern extraction)
+                # Metric-aware evaluation
                 metric_pass = True
                 if self.metric_config and verify_result.get("output"):
                     metric_value = self._extract_metric(
@@ -506,8 +520,8 @@ class ExecutionEngine:
                         "metric_value": metric_value,
                     }
 
-                # Verification or metric failed
-                error_msg = verify_result.get("error", "Verification failed")
+                # Verification or metric failed in official check
+                error_msg = verify_result.get("error", "Official verification failed after agent claimed success.")
                 if not metric_pass and metric_value is not None:
                     error_msg = (
                         f"Metric {self.metric_config['name']}={metric_value:.4f} "
@@ -535,7 +549,7 @@ class ExecutionEngine:
                     "metric_value": metric_value,
                 }
 
-            # No verification => mark as done but log warning
+            # No verification command => mark as done
             await self._log(
                 f"   ⚠️  [agent={agent_id}] No verification command specified, marking story as done"
             )
@@ -543,21 +557,18 @@ class ExecutionEngine:
             await self._append_progress(
                 story_id=story_id,
                 status="success",
-                learning=(
-                    f"[agent={agent_id}] Completed {story.get('title', 'story')} "
-                    f"(no verification)."
-                ),
+                learning=f"[agent={agent_id}] Completed {story.get('title', 'story')} (no verification).",
             )
             return {"status": "success", "files": files, "metric_value": metric_value}
 
-        except Exception as e:  # pragma: no cover - defensive
+        except Exception as e:
             logger.exception("Error executing story %s", story_id)
             await self._log(f"   ❌ [agent={agent_id}] Error: {str(e)}")
             self._update_prd_story(story_id, status="failed", passes=False)
             return {
                 "status": "error",
                 "error": str(e),
-                "metric_value": metric_value,
+                "metric_value": None,
             }
 
     # ------------------------------------------------------------------
