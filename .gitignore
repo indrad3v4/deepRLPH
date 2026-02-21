@@ -1,0 +1,68 @@
+# Virtual Environment 🐍
+venv/
+env/
+ENV/
+.venv
+
+# IDE 💻
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+*.iml
+
+# Python 🏗️
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Environment 🔐
+.env
+.env.local
+.env.*.local
+
+# Logs 📝
+logs/
+*.log
+workspace/output/logs/*.log
+
+# OS 🖥️
+.DS_Store
+Thumbs.db
+
+# Testing 🧪
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE config ⚙️
+.vscode/settings.json
+
+# Data and Models 📊
+*.parquet
+*.onnx
+*.csv
+
+# RALPH Workspace 📂
+workspace/
