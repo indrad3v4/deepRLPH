@@ -3,13 +3,13 @@
 agent_coordinator_extensions.py - PRD Agent Assignment Extensions
 
 ITEM-004: Agent Assignment Protocol
-
 Extensions to AgentCoordinator for assigning PRD items to agents.
 """
 
 import asyncio
 import logging
 import json
+import os
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
@@ -21,11 +21,7 @@ logger = logging.getLogger(__name__)
 class PRDAgentAssignmentMixin:
     """Mixin for AgentCoordinator to add PRD item assignment.
 
-    Usage:
-        class AgentCoordinator(PRDAgentAssignmentMixin, ...):
-            ...
-
-    This mixin provides assign_prd_item() method that executes the
+    Provides assign_prd_item() method that executes the
     autonomous 'Ralph Loop' by providing the LLM with Native Tools.
     """
 
@@ -37,18 +33,6 @@ class PRDAgentAssignmentMixin:
             deepseek_client: Any,
             log_callback: Optional[callable] = None,
     ) -> Dict[str, Any]:
-        """Assign PRD item to agent for implementation using a tool-calling loop.
-
-        Args:
-            item: PRD item to implement
-            agent_id: ID of agent (e.g., "agent_1")
-            project_dir: Project directory path
-            deepseek_client: DeepSeek client instance
-            log_callback: UI log callback
-
-        Returns:
-            Dict with status, files_created, and response/error.
-        """
 
         async def _log(msg: str):
             logger.info(f"[{agent_id}] {msg}")
@@ -67,25 +51,24 @@ class PRDAgentAssignmentMixin:
                 "files_created": [],
             }
 
-        prompt = self._generate_prd_item_prompt(item)
+        # ✅ FIX 3: Pass project_dir to pre-load file contents
+        prompt = self._generate_prd_item_prompt(item, project_dir)
 
         system_prompt = (
-            "You are a senior software engineer operating in an autonomous loop (Ralph Loop). "
+            "You are an elite AI software engineer operating in an autonomous loop. "
             "You MUST use the provided tools to read files, write code, and run tests. "
             "Your workflow: "
-            "1. Read necessary context (read_file). "
-            "2. Write implementation and tests (write_file). "
-            "3. Run the verification command (execute_command). "
-            "4. If verification fails, read the error and FIX your code. "
-            "5. You cannot finish until verification passes. "
-            "6. Call finish_task ONLY when you are completely done and tests pass."
+            "1. Write implementation AND tests using `write_file`. "
+            "2. Run the exact verification command provided using `execute_command`. "
+            "3. If tests fail, READ the error, FIX the code, and TEST AGAIN. "
+            "4. Call `finish_task` ONLY when the verification command passes with Exit Code 0. "
+            "If you are completely stuck after many attempts, call `finish_task` anyway with a failure summary."
         )
 
         messages = [
             {"role": "user", "content": prompt}
         ]
 
-        # Define the tools the agent can use natively
         tools = [
             {
                 "type": "function",
@@ -120,7 +103,7 @@ class PRDAgentAssignmentMixin:
                 "type": "function",
                 "function": {
                     "name": "execute_command",
-                    "description": "Execute a shell command in the project root (e.g. pytest, python script.py)",
+                    "description": "Execute a shell command in the project root (e.g. pytest tests/ -v)",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -134,11 +117,11 @@ class PRDAgentAssignmentMixin:
                 "type": "function",
                 "function": {
                     "name": "finish_task",
-                    "description": "Mark the task as completely finished. Call this ONLY after tests pass.",
+                    "description": "Mark the task as completely finished.",
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "summary": {"type": "string", "description": "Summary of what was done"}
+                            "summary": {"type": "string", "description": "Summary of what was done or why it failed"}
                         },
                         "required": ["summary"]
                     }
@@ -146,15 +129,14 @@ class PRDAgentAssignmentMixin:
             }
         ]
 
-        max_iterations = 15
+        # ✅ FIX 1: Double the iteration budget so it has time to write and fix tests
+        max_iterations = 30
         files_created = set()
 
         try:
-            # The True Ralph Loop 🔄
             for iteration in range(max_iterations):
                 await _log(f"Loop iteration {iteration + 1}/{max_iterations}...")
 
-                # We will implement this new method in deepseek_client.py next!
                 response = await deepseek_client.call_agent_with_tools(
                     system_prompt=system_prompt,
                     messages=messages,
@@ -167,9 +149,8 @@ class PRDAgentAssignmentMixin:
                     return {"status": "error", "error": response.get("error"), "files_created": list(files_created)}
 
                 message = response.get("message", {})
-                messages.append(message)  # Add assistant's message to history
+                messages.append(message)
 
-                # Check if the agent called any tools
                 if not message.get("tool_calls"):
                     await _log("⚠️ Agent didn't call any tools, nudging...")
                     messages.append({
@@ -180,7 +161,6 @@ class PRDAgentAssignmentMixin:
 
                 finished = False
 
-                # Execute the tools requested by the agent
                 for tool_call in message["tool_calls"]:
                     func_name = tool_call["function"]["name"]
                     args_str = tool_call["function"]["arguments"]
@@ -220,9 +200,14 @@ class PRDAgentAssignmentMixin:
                         cmd = args.get("command", "")
                         await _log(f"   💻 Executing: {cmd}")
                         try:
+                            # ✅ FIX 2: Inject PYTHONPATH so pytest can import from src/
+                            env = os.environ.copy()
+                            env["PYTHONPATH"] = str(project_dir)
+
                             proc = await asyncio.create_subprocess_shell(
                                 cmd,
                                 cwd=str(project_dir),
+                                env=env,
                                 stdout=asyncio.subprocess.PIPE,
                                 stderr=asyncio.subprocess.PIPE
                             )
@@ -253,12 +238,11 @@ class PRDAgentAssignmentMixin:
                     else:
                         tool_result = f"Unknown tool: {func_name}"
 
-                    # Feed the result of the tool back into the conversation context
                     messages.append({
                         "role": "tool",
                         "tool_call_id": call_id,
                         "name": func_name,
-                        "content": str(tool_result)[:4000]  # Truncate to avoid context limits
+                        "content": str(tool_result)[:6000]  # Truncated to avoid context limits
                     })
 
                 if finished:
@@ -284,25 +268,39 @@ class PRDAgentAssignmentMixin:
                 "files_created": list(files_created),
             }
 
-    def _generate_prd_item_prompt(self, item: PRDItem) -> str:
-        """Generate prompt for PRD item implementation."""
+    def _generate_prd_item_prompt(self, item: PRDItem, project_dir: Path) -> str:
+        """Generate prompt, pre-loading existing files so the agent isn't blind."""
         acceptance = "\n".join([f"  - {c}" for c in item.acceptance_criteria])
         files = ", ".join(item.files_touched) if item.files_touched else "(to be determined)"
+
+        # ✅ FIX 3: Give the agent 'eyes' by attaching existing file contents
+        existing_context = ""
+        if item.files_touched:
+            existing_context = "\n### CURRENT FILE CONTENTS ###\n"
+            for f in item.files_touched:
+                fpath = project_dir / f
+                if fpath.exists():
+                    try:
+                        content = fpath.read_text(encoding='utf-8')
+                        existing_context += f"\n--- {f} ---\n```python\n{content}\n```\n"
+                    except Exception:
+                        pass
 
         return f"""Implement the following PRD item:
 
 **Item ID**: {item.item_id}
 **Title**: {item.title}
-**Priority**: {item.priority}
 
 **Acceptance Criteria**:
 {acceptance}
 
-**Verification Command**: {item.verification_command}
+**Verification Command**: `{item.verification_command}`
 
 **Files to Modify**: {files}
+{existing_context}
 
-Use your tools to write the code and run the verification command. You MUST run `{item.verification_command}` using the `execute_command` tool.
-If it fails, read the error and correct your code using `write_file`.
-Only call `finish_task` when the verification command succeeds and all acceptance criteria are met!
+Use `write_file` to write the full implementation. 
+Then, use `execute_command` to run `{item.verification_command}`.
+If it fails, read the error and FIX your code. 
+Only call `finish_task` when the verification command succeeds with Exit Code 0!
 """

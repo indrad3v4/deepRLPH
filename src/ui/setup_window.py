@@ -1907,7 +1907,13 @@ Features:
             cfg = getattr(self.orchestrator, 'current_config', None)
             meta = getattr(cfg, 'metadata', {}) or {} if cfg else {}
             prd = meta.get('prd_backlog') or meta.get('prd')
+
         if isinstance(prd, dict):
+            # 🆕 FIX: Check for the canonical user_stories key first!
+            user_stories = prd.get('user_stories')
+            if isinstance(user_stories, list):
+                return len(user_stories)
+
             backlog = prd.get('backlog')
             if isinstance(backlog, list):
                 return len(backlog)

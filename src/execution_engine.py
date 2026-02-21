@@ -728,6 +728,13 @@ Instructions:
         return f"{base_dir}/{story_id}_block{block_idx}.{ext}"
 
     async def _run_verification(self, command: str) -> Dict[str, Any]:
+        """Runs the official verification command and captures ALL output."""
+        import os
+
+        # Inject PYTHONPATH so pytest can find the src/ directory
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(self.project_dir)
+
         try:
             result = await asyncio.get_event_loop().run_in_executor(
                 None,
@@ -735,23 +742,30 @@ Instructions:
                     command,
                     shell=True,
                     cwd=str(self.project_dir),
-                    capture_output=True,
+                    env=env,
+                    # 🚀 FIX: Merge stderr into stdout so we NEVER miss a crash log!
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
                     text=True,
                     timeout=600,
                 ),
             )
+
             if result.returncode == 0:
                 return {"success": True, "output": result.stdout}
+
+            # 🚀 FIX: Return the combined output so the UI shows the exact error
             return {
                 "success": False,
-                "error": f"Command failed with code {result.returncode}: {result.stderr[:400]}",
+                "error": f"Command failed with code {result.returncode}:\n{result.stdout[:1500]}",
                 "output": result.stdout,
             }
+
         except subprocess.TimeoutExpired:
             return {"success": False,
                     "error": "Verification timed out (600s)",
                     "output": ""}
-        except Exception as e:  # pragma: no cover
+        except Exception as e:
             return {"success": False,
                     "error": f"Verification error: {str(e)}",
                     "output": ""}
