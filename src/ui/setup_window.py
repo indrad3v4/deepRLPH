@@ -1217,6 +1217,16 @@ Respond ONLY with valid JSON, no markdown."""
             if self.project_data.get('prd_backlog'):
                 metadata['prd_backlog'] = self.project_data['prd_backlog']
 
+                # 🆕 FIX: Synchronize prd_backlog to the physical prd.json file
+                try:
+                    prd_file = self.existing_project_dir / "prd.json"
+                    normalized_prd = self.orchestrator._normalize_prd_for_engine(self.project_data['prd_backlog'])
+                    with open(prd_file, 'w', encoding='utf-8') as f:
+                        json.dump(normalized_prd, f, indent=2)
+                    logger.info(f"✅ Synchronized PRD to {prd_file} during edit")
+                except Exception as e:
+                    logger.error(f"Failed to sync prd.json during edit: {e}")
+
             config_data['metadata'] = metadata
 
             with open(config_file, 'w', encoding='utf-8') as f:
@@ -1250,6 +1260,18 @@ Respond ONLY with valid JSON, no markdown."""
             # Trigger parent UI refresh
             if hasattr(self.parent_ui, '_refresh_projects'):
                 self.parent_ui._refresh_projects()
+
+            # 🆕 FIX: Live-update the Refinement tab if the edited project is currently active
+            if hasattr(self.parent_ui, 'current_prd') and self.project_data.get('prd_backlog'):
+                normalized_prd = self.orchestrator._normalize_prd_for_engine(self.project_data['prd_backlog'])
+                self.parent_ui.current_prd = normalized_prd
+                if hasattr(self.parent_ui, 'prd_preview'):
+                    try:
+                        self.parent_ui.prd_preview.delete('1.0', 'end')
+                        self.parent_ui.prd_preview.insert('1.0', json.dumps(normalized_prd, indent=2))
+                    except Exception:
+                        pass
+
         except Exception as e:
             logger.error(f"Project update error: {e}", exc_info=True)
             messagebox.showerror("Error", f"Failed to update project:\n{str(e)}")
@@ -1343,35 +1365,17 @@ Respond ONLY with valid JSON, no markdown."""
 
             if result.get('status') == 'success':
 
-                # =================================================================
-                # 🆕 FIX: COPY FILES INTO THE WORKSPACE FOR THE CONTEXT INGESTOR
-                # =================================================================
-                project_dir = Path(result['path'])
-
-                def copy_safely(src_list, dest_dir):
-                    dest_dir.mkdir(parents=True, exist_ok=True)
-                    for f_path_str in src_list:
-                        src_path = Path(f_path_str)
-                        if src_path.exists():
-                            shutil.copy2(src_path, dest_dir / src_path.name)
-
-                # 1. Copy docs to root
-                copy_safely(self.project_data['doc_files'], project_dir)
-
-                # 2. Copy datasets to data/raw/
-                copy_safely(self.project_data['dataset_files'], project_dir / "data" / "raw")
-
-                # 3. Copy baseline models/code
-                for f_path_str in self.project_data['baseline_files']:
-                    src_path = Path(f_path_str)
-                    if src_path.exists():
-                        if src_path.suffix == '.onnx':
-                            (project_dir / "models").mkdir(parents=True, exist_ok=True)
-                            shutil.copy2(src_path, project_dir / "models" / src_path.name)
-                        else:
-                            # Place Python baseline scripts in root
-                            shutil.copy2(src_path, project_dir / src_path.name)
-                # =================================================================
+                # 🆕 FIX: Synchronize prd_backlog to the physical prd.json file on creation
+                if 'prd_backlog' in metadata:
+                    try:
+                        project_dir = Path(result['path'])
+                        prd_file = project_dir / "prd.json"
+                        normalized_prd = self.orchestrator._normalize_prd_for_engine(metadata['prd_backlog'])
+                        with open(prd_file, 'w', encoding='utf-8') as f:
+                            json.dump(normalized_prd, f, indent=2)
+                        logger.info(f"✅ Synchronized PRD to {prd_file} upon creation")
+                    except Exception as e:
+                        logger.error(f"Failed to sync prd.json: {e}")
 
                 prd_msg = ""
                 if 'prd_backlog' in metadata:
