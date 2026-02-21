@@ -1763,7 +1763,14 @@ Features:
             return
 
         async def refine():
-            result = self.orchestrator.refine_task(project_id, task)
+            # Run the heavy, synchronous orchestrator task in a separate thread
+            # so it doesn't crash the running asyncio event loop!
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                lambda: self.orchestrator.refine_task(project_id, task)
+            )
+
             if result.get('status') == 'success':
                 self.current_prd = result['prd']
                 prd_summary = json.dumps(result['prd'], indent=2)
@@ -1773,7 +1780,7 @@ Features:
                                                           "Project PRD updated! Go to Execution tab to run agents."))
                 # Update execution agents hint after PRD change
                 try:
-                    self._update_agents_hint()
+                    self.after(0, self._update_agents_hint)
                 except Exception:
                     pass
             else:
@@ -1857,7 +1864,15 @@ Features:
 
         # Logs
         ttk.Label(container, text="Execution Logs:", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(20, 5))
-        self.exec_logs = scrolledtext.ScrolledText(container, height=20, width=100, font=('Consolas', 9))
+        self.exec_logs = scrolledtext.ScrolledText(
+            container,
+            height=20,
+            width=100,
+            font=('Consolas', 9),
+            bg=self.colors['bg_secondary'],
+            fg=self.colors['text_primary'],
+            insertbackground=self.colors['text_primary']  # Makes the cursor visible
+        )
         self.exec_logs.pack(fill='both', expand=True, pady=5)
 
         # Initialize agents hint based on current PRD (if any)
