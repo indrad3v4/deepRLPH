@@ -181,7 +181,7 @@ class PRDGenerator:
                     "Specific kernel sizes for 32 input features",
                     "Unit tests validate output dimensions"
                 ],
-                verification="pytest tests/test_model.py::test_cnn -v",
+                verification="pytest tests/test_model.py -v",
                 files_touched=["src/models/cnn_extractor.py", "tests/test_model.py"]
             ),
             UserStory(
@@ -193,7 +193,7 @@ class PRDGenerator:
                     "VSN weighs raw vs engineered signals",
                     "Self-attention captures non-linear dependencies"
                 ],
-                verification="pytest tests/test_model.py::test_vsn_attention -v",
+                verification="pytest tests/test_model.py -v",
                 files_touched=["src/models/variable_selection.py", "src/models/attention.py"]
             ),
             UserStory(
@@ -224,16 +224,15 @@ class PRDGenerator:
             UserStory(
                 id="ML-008",
                 title="Implement ONNX Export and Root-Level Inference Script",
-                description="Create root solution.py and package for submission.",
+                description="Create root solution.py, export dummy model, and package for submission.",
                 why="Ensures code runs in competition environment and builds submission.zip.",
                 acceptance_criteria=[
                     "Export model to 'models/final/model.onnx'",
                     "Create 'solution.py' in the ROOT directory (not src/)",
                     "Verify the package with the submission script"
                 ],
-                # ⛓️ The Universal Command: Test + Zip
-                verification="pytest tests/test_onnx.py -v && python scripts/make_submission.py .",
-                # 🏠 The Universal Path: solution.py at the root
+                # 🚀 NEW: Force the execution engine to run the export script BEFORE packaging!
+                verification="python src/onnx/export.py && pytest tests/test_onnx.py -v && python scripts/make_submission.py .",
                 files_touched=["src/onnx/export.py", "solution.py", "tests/test_onnx.py"]
             )
         ]
