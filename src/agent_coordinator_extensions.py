@@ -10,6 +10,7 @@ import asyncio
 import logging
 import json
 import os
+import subprocess
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
@@ -51,21 +52,34 @@ class PRDAgentAssignmentMixin:
                 "files_created": [],
             }
 
-        # ✅ FIX 3: Pass project_dir to pre-load file contents
         prompt = self._generate_prd_item_prompt(item, project_dir)
 
+        # TRIZ FIX 4: Universal "Bulldozer" Prompt. Works for all tasks, forces progress.
         system_prompt = (
-            "You are an elite AI software engineer operating in an autonomous loop. "
-            "You MUST use the provided tools to read files, write code, and run tests. "
-            "Your workflow:\n"
-            "1. Write implementation AND tests using `write_file`.\n"
-            "2. Ensure all python files have `import sys; import os; sys.path.insert(0, os.path.abspath('.'))` at the top!\n"
-            "3. Run the exact verification command provided using `execute_command`.\n"
-            "4. 🚨 BULLDOZER RULE: If a command fails MORE THAN TWICE, you MUST bypass it:\n"
-            "   - If a pytest fails, overwrite the test file with just `def test_dummy(): pass`.\n"
-            "   - If a python script (like export.py, train.py, or model.py) crashes, overwrite it to use a minimal dummy PyTorch model (e.g. `nn.Linear(10, 1)`) just to make the script run without errors.\n"
-            "   - If ONNX export fails, ensure you at least write a dummy file to `models/final/model.onnx`.\n"
-            "5. YOU MUST CALL `finish_task`! Never reach iteration 30. If you are stuck, apply the Bulldozer Rule, get an Exit Code 0, and finish the task."
+            "### Goal\n"
+            "Your mission is to programmatically build the world's most robust, high-performance software. "
+            "You must implement the requested feature, pass the specific verification command, and advance the autonomous pipeline with zero technical debt.\n\n"
+
+            "### Return Format\n"
+            "You are an elite AI worker. You must execute your work exclusively through the following strict tool sequence:\n"
+            "1. `read_file`: Audit the existing codebase to ensure architectural alignment.\n"
+            "2. `write_file`: Write production-grade implementation code and comprehensive tests.\n"
+            "3. `execute_command`: Run the exact verification command provided to prove functionality.\n"
+            "4. `finish_task`: Terminate the loop immediately with a professional summary of your architectural changes.\n\n"
+
+            "### Warnings & Strict Constraints\n"
+            "- PATH INJECTION: Every Python file you create MUST start exactly with: `import sys, os; sys.path.insert(0, os.path.abspath('.'))`\n"
+            "- TENSOR PRECISION (ML Case): If working with PyTorch, always cast output tensors to `torch.float32` (e.g., `tensor.to(torch.float32)`) to prevent precision mismatches.\n"
+            "- NO DUMMY CODE: You are building #1 software. Never write empty stubs, fake models, or hollow tests just to trick the verifier. Real code only.\n"
+            "- FAIL-FAST PROTOCOL: If a verification command fails MORE THAN 3 TIMES, stop immediately. Do not hallucinate infinite fixes. Leave your high-quality code in place and call `finish_task` with the exact string: 'FAILED: [Concise summary of the persistent error]'.\n"
+            "- ITERATION LIMIT: Never reach the 30-iteration timeout. Efficiency is a hallmark of elite engineering.\n\n"
+
+            "### Context Dump\n"
+            "You are an elite AI worker node operating inside 'deepRLPH', a generalized multi-agent orchestrator for programmatic software construction. "
+            "Whether you are building a low-latency trading model, a scalable API, or a complex distributed system, you are part of an industrial-grade asynchronous pipeline. "
+            "The Orchestrator features a dedicated 'FixLoop' designed to handle controlled failures. "
+            "By admitting a failure via the 'FAILED:' string, you allow the system to pass your high-quality partial work and the error logs to a fresh execution context for final resolution. "
+            "Yield control gracefully to preserve the integrity of the world's #1 software pipeline."
         )
 
         messages = [
@@ -132,7 +146,6 @@ class PRDAgentAssignmentMixin:
             }
         ]
 
-        # ✅ FIX 1: Double the iteration budget so it has time to write and fix tests
         max_iterations = 30
         files_created = set()
 
@@ -201,9 +214,13 @@ class PRDAgentAssignmentMixin:
 
                     elif func_name == "execute_command":
                         cmd = args.get("command", "")
+
+                        # Fix for Pytest visibility issues
+                        if cmd.startswith("pytest "):
+                            cmd = "python -m " + cmd
+
                         await _log(f"   💻 Executing: {cmd}")
                         try:
-                            # ✅ FIX 2: Inject PYTHONPATH so pytest can import from src/
                             env = os.environ.copy()
                             env["PYTHONPATH"] = str(project_dir)
 
@@ -224,6 +241,18 @@ class PRDAgentAssignmentMixin:
 
                             if proc.returncode == 0:
                                 await _log(f"   ✅ Command passed")
+
+                                clean_cmd = cmd.replace("python -m ", "").strip()
+                                expected_cmd = item.verification_command.replace("python -m ", "").strip()
+
+                                # STRICT GUILLOTINE: Exact match only. No cheating allowed.
+                                if clean_cmd == expected_cmd:
+                                    await _log("   🎯 Official Verification Command passed! Auto-terminating loop.")
+                                    return {
+                                        "status": "success",
+                                        "files_created": list(files_created),
+                                        "response": "Auto-terminated due to successful official verification."
+                                    }
                             else:
                                 await _log(f"   ❌ Command failed (code {proc.returncode})")
 
@@ -255,10 +284,11 @@ class PRDAgentAssignmentMixin:
                         "response": "Task finished successfully via tool call."
                     }
 
-            await _log(f"⚠️ Reached max iterations ({max_iterations}) without finish_task.")
+            # TRIZ FIX 2: Graceful Degradation. Don't throw away code just because it hit the limit.
+            await _log(f"⚠️ Reached max iterations ({max_iterations}). Forcing evaluation of generated code.")
             return {
-                "status": "error",
-                "error": "Max loop iterations reached without completing the task.",
+                "status": "success",  # Return success so ExecutionEngine runs official check
+                "response": "Max iterations reached. Proceeding to official validation.",
                 "files_created": list(files_created)
             }
 
@@ -272,11 +302,29 @@ class PRDAgentAssignmentMixin:
             }
 
     def _generate_prd_item_prompt(self, item: PRDItem, project_dir: Path) -> str:
-        """Generate prompt, pre-loading existing files so the agent isn't blind."""
+        """Generate prompt, pre-loading existing files and directory structure."""
         acceptance = "\n".join([f"  - {c}" for c in item.acceptance_criteria])
         files = ", ".join(item.files_touched) if item.files_touched else "(to be determined)"
 
-        # ✅ FIX 3: Give the agent 'eyes' by attaching existing file contents
+        # TRIZ FIX 3: Give the agent a map of the directory
+        try:
+            # Quick way to get a basic directory tree string in Python
+            tree_paths = []
+            for root, dirs, filenames in os.walk(project_dir):
+                if 'venv' in root or '.git' in root or '__pycache__' in root:
+                    continue
+                level = root.replace(str(project_dir), '').count(os.sep)
+                if level < 3:  # Keep it shallow to save tokens
+                    indent = ' ' * 4 * (level)
+                    tree_paths.append(f"{indent}{os.path.basename(root)}/")
+                    subindent = ' ' * 4 * (level + 1)
+                    for f in filenames:
+                        if f.endswith('.py') or f.endswith('.parquet') or f.endswith('.md'):
+                            tree_paths.append(f"{subindent}{f}")
+            tree_output = "\n".join(tree_paths)
+        except Exception:
+            tree_output = "(Directory structure unavailable)"
+
         existing_context = ""
         if item.files_touched:
             existing_context = "\n### CURRENT FILE CONTENTS ###\n"
@@ -300,6 +348,10 @@ class PRDAgentAssignmentMixin:
 **Verification Command**: `{item.verification_command}`
 
 **Files to Modify**: {files}
+
+### WORKSPACE STRUCTURE ###
+```text
+{tree_output}
 {existing_context}
 
 Use `write_file` to write the full implementation. 

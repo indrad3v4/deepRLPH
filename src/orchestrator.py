@@ -864,13 +864,13 @@ class RalphOrchestrator:
             # =====================================================================
             # BE-005: SCHEMA-AWARE PRD GENERATION
             # =====================================================================
-            self._log("📝 PRD Generation Phase (BE-005: schema-aware)")
-            gen = PRDGenerator()
-            prd = gen.generate(
+            self._log("📝 PRD Generation Phase (BE-005: Dynamic AI-aware)")
+            gen = PRDGenerator(self.deepseek_client)
+            prd = asyncio.run(gen.generate(
                 technical_brief=brief,
                 domain=config.domain,
-                project_metadata=config.metadata,  # Contains dataset_schemas
-            )
+                project_metadata=config.metadata,
+            ))
             self._log(f"✅ PRD generated: {prd['total_items']} items")
 
             prd_file = self.current_project_dir / "prd.json"

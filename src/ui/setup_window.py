@@ -1638,22 +1638,36 @@ Features:
             if proj['name'] == project_name:
                 config_file = Path(proj['path']) / 'config.json'
                 if config_file.exists():
-                    with open(config_file, 'r') as f:
+                    with open(config_file, 'r', encoding='utf-8') as f:
                         config_data = json.load(f)
                         config_obj = ProjectConfig.from_dict(config_data)
                         self.orchestrator.current_config = config_obj
                         self.orchestrator.current_project_dir = Path(proj['path'])
-                        # Try to load PRD/PRD backlog from metadata for Execution/PRD preview
-                        meta = getattr(config_obj, "metadata", {}) or {}
-                        prd_from_meta = meta.get('prd_backlog') or meta.get('prd')
-                        if prd_from_meta:
-                            self.current_prd = prd_from_meta
-                            if hasattr(self, 'prd_preview'):
-                                try:
-                                    self.prd_preview.delete('1.0', 'end')
-                                    self.prd_preview.insert('1.0', json.dumps(prd_from_meta, indent=2))
-                                except Exception:
-                                    pass
+
+                        # 🎯 TRIZ FIX: Prioritize the physical prd.json file over metadata!
+                        prd_file = self.orchestrator.current_project_dir / "prd.json"
+                        if prd_file.exists():
+                            try:
+                                with open(prd_file, 'r', encoding='utf-8') as pf:
+                                    self.current_prd = json.load(pf)
+                                logger.info(f"✅ Loaded PRD from physical file: {prd_file}")
+                            except Exception as e:
+                                logger.warning(f"⚠️ Failed to read prd.json: {e}")
+                                # Fallback to metadata if file is corrupt
+                                meta = getattr(config_obj, "metadata", {}) or {}
+                                self.current_prd = meta.get('prd_backlog') or meta.get('prd')
+                        else:
+                            # Fallback to metadata if no file exists
+                            meta = getattr(config_obj, "metadata", {}) or {}
+                            self.current_prd = meta.get('prd_backlog') or meta.get('prd')
+
+                        # Update the preview text box if it exists
+                        if self.current_prd and hasattr(self, 'prd_preview'):
+                            try:
+                                self.prd_preview.delete('1.0', 'end')
+                                self.prd_preview.insert('1.0', json.dumps(self.current_prd, indent=2))
+                            except Exception:
+                                pass
                 break
 
         logger.info(f"📁 Selected project: {project_name}")

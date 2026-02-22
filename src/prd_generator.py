@@ -1,263 +1,155 @@
 # -*- coding: utf-8 -*-
 """
-prd_generator.py - PRD Generator from Technical Brief (PR-001)
+prd_generator.py - Dynamic AI-Driven PRD Generator
 
-Supports KPI-aware ML competitions and standard API/LLM/Web projects.
-Deroasted version: Fixes relative imports, avoids side-effect mutation,
-and enforces universal submission rules for ML projects.
+Dynamically generates PRD Backlogs based on project context, using
+an o1-Anatomy prompt to ensure adaptive scoping and precise verifications.
 """
 
 import logging
-from typing import Dict, Any, List, Optional, Tuple
-from dataclasses import dataclass, asdict
+import json
+from typing import Dict, Any, Optional
 
 # Absolute import to avoid "no known parent package" errors in orchestrator
-from prd_model import PRDModel, normalize_prd
+from prd_model import normalize_prd
 
 logger = logging.getLogger("PRDGenerator")
 
 
-# ---------------------------------------------------------------------------
-# Helper utilities for KPI + context extraction
-# ---------------------------------------------------------------------------
-
-def _extract_kpi_info(project_meta: Dict[str, Any]) -> Tuple[str, Optional[float]]:
-    """Return canonical (metric_key, target) without mutating the input directly."""
-    # We use .get to look for common KPI keys
-    metric = (
-            project_meta.get("kpi_metric")
-            or project_meta.get("eval_metric")
-            or "weighted_pearson"
-    )
-
-    m_lower = str(metric).lower()
-    metric_key = "weighted_pearson" if "pearson" in m_lower else str(metric)
-
-    target_raw = project_meta.get("kpi_target", project_meta.get("metric_target"))
-    try:
-        kpi_target = float(target_raw) if target_raw is not None else None
-    except (TypeError, ValueError):
-        kpi_target = None
-
-    return metric_key, kpi_target
-
-
-def _get_first_parquet_summary(project_meta: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    ctx = project_meta.get("ingested_context") or {}
-    summaries = ctx.get("binary_summaries") or {}
-    for _rel, summary in summaries.items():
-        if summary.get("format") == "parquet":
-            return summary
-    return None
-
-
-@dataclass
-class UserStory:
-    """Single PRD item builder."""
-    id: str
-    title: str
-    description: str
-    acceptance_criteria: List[str]
-    verification: str
-    why: str
-    files_touched: List[str]
-    status: str = "todo"
-    attempts: int = 0
-    errors: List[str] = None
-
-    def __post_init__(self):
-        if self.errors is None:
-            self.errors = []
-
-    def to_dict(self):
-        return asdict(self)
-
-
 class PRDGenerator:
-    """Convert technical brief → PRD backlog"""
+    """Dynamic PRD generator powered by DeepSeek."""
 
-    def __init__(self):
-        self.stories: List[UserStory] = []
+    def __init__(self, deepseek_client: Any):
+        self.deepseek = deepseek_client
 
-    def generate(
+    async def generate(
             self,
             technical_brief: Dict[str, Any],
             domain: str = "llm-app",
             project_metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Generate PRD from clarified task."""
-        clarified_task = technical_brief.get("clarified_task", "")
-        key_reqs = technical_brief.get("key_requirements", [])
+
         project_meta = project_metadata or technical_brief.get("project_metadata") or {}
+        task = technical_brief.get("clarified_task", "")
 
-        # Detect project type
-        project_type_meta = project_meta.get("project_type", "")
-        is_ml_competition = (project_type_meta == "ml_competition") or ("time_series" in domain.lower())
+        # Extract KPI context
+        kpi_metric = project_meta.get("kpi_metric") or project_meta.get("eval_metric") or "score"
+        kpi_target = project_meta.get("kpi_target", project_meta.get("metric_target", 0.0))
 
-        if is_ml_competition:
-            logger.info("   Detected: ML Competition")
-            stories = self._decompose_ml_competition(
-                task=clarified_task,
-                reqs=key_reqs,
-                project_meta=project_meta,
-            )
-        else:
-            logger.info("   Using generic decomposition")
-            stories = self._decompose_generic(clarified_task, key_reqs)
-
-        # Build raw PRD dict using legacy shape for the normalizer
-        raw_prd = {
-            "task": clarified_task,
-            "domain": domain,
-            "total_items": len(stories),
-            "user_stories": [s.to_dict() for s in stories],
-            "project_metadata": project_meta,
+        # Extract workspace context (what files already exist)
+        ingested_context = project_meta.get("ingested_context", {})
+        files_summary = {
+            "datasets": ingested_context.get("datasets", []),
+            "code": ingested_context.get("code", []),
+            "models": ingested_context.get("models", []),
         }
 
-        # Normalize via PRDModel to guarantee canonical structure on disk
+        system_prompt = (
+            "### Goal\n"
+            "You are an elite Technical Product Manager. Your mission is to convert a technical brief into a strictly formatted, highly actionable JSON PRD Backlog for autonomous AI workers.\n\n"
+
+            "### Return Format\n"
+            "Return ONLY valid JSON. Do not wrap it in markdown code blocks. The JSON must match this exact schema:\n"
+            "{\n"
+            '  "total_items": <int>,\n'
+            '  "user_stories": [\n'
+            "    {\n"
+            '      "id": "ML-001",\n'
+            '      "title": "string",\n'
+            '      "description": "string",\n'
+            '      "acceptance_criteria": ["string", "string"],\n'
+            '      "verification": "exact shell command (e.g., `pytest tests/test_file.py -v`)",\n'
+            '      "why": "string",\n'
+            '      "files_touched": ["path/to/file.py"]\n'
+            "    }\n"
+            "  ]\n"
+            "}\n\n"
+
+            "### Warnings & Strict Constraints\n"
+            "- ADAPTIVE SCOPING: Read the Task carefully. If the task is a small iteration (e.g., 'Create run_pipeline.py'), ONLY generate stories for that specific delta. Do NOT regenerate foundational stories if they already exist in the Workspace Context.\n"
+            "- PRECISE VERIFICATION: Every single story MUST have a functional `verification` command. Do NOT use specific function targets (`::test_name`) in pytest commands. Use file-level targets (e.g., `pytest tests/test_data.py -v`) or direct python execution (e.g., `python src/run_pipeline.py`).\n"
+            f"- KPI AWARENESS: The project metric is '{kpi_metric}' with a target of {kpi_target}. Integrate this into relevant acceptance criteria.\n\n"
+
+            "### Context Dump\n"
+            "You are generating work for 'deepRLPH', an autonomous software construction engine. The workers need bite-sized, independent tasks. "
+            "Use the provided workspace context to understand what files already exist so you do not ask agents to unnecessarily recreate existing components."
+        )
+
+        user_message = (
+            f"TASK TO IMPLEMENT:\n{task}\n\n"
+            f"DOMAIN:\n{domain}\n\n"
+            f"EXISTING WORKSPACE FILES:\n{json.dumps(files_summary, indent=2)}\n\n"
+            "Generate the JSON PRD Backlog now."
+        )
+
+        logger.info("🧠 Generating dynamic PRD via DeepSeek...")
+
+        try:
+            response = await self.deepseek.call_agent(
+                system_prompt=system_prompt,
+                user_message=user_message,
+                thinking_budget=4000,
+                temperature=0.2
+            )
+
+            if response.get("status") == "success":
+                raw_text = response["response"]
+
+                # Clean markdown formatting if present
+                if "```json" in raw_text:
+                    raw_text = raw_text.split("```json")[1].split("```")[0]
+                elif "```" in raw_text:
+                    raw_text = raw_text.split("```")[1].split("```")[0]
+
+                prd_data = json.loads(raw_text.strip())
+
+                # Merge metadata
+                prd_data["project_metadata"] = project_meta
+                prd_data["task"] = task
+                prd_data["domain"] = domain
+
+                # Normalize and return
+                return normalize_prd(prd_data)
+            else:
+                logger.error(f"❌ AI PRD Generation failed: {response.get('error')}")
+                return self._fallback_prd(task, project_meta)
+
+        except Exception as e:
+            logger.error(f"❌ Exception in AI PRD Generation: {e}", exc_info=True)
+            return self._fallback_prd(task, project_meta)
+
+    def _fallback_prd(self, task: str, project_meta: dict) -> dict:
+        logger.warning("⚠️ Falling back to simple generic PRD item")
+        raw_prd = {
+            "task": task,
+            "domain": "unknown",
+            "total_items": 1,
+            "user_stories": [
+                {
+                    "id": "ITEM-001",
+                    "title": "Implement Requested Task",
+                    "description": task,
+                    "acceptance_criteria": ["Implementation meets the task description"],
+                    "verification": "pytest -v",
+                    "why": "Fallback item due to AI generation failure",
+                    "files_touched": [],
+                    "status": "todo",
+                    "attempts": 0,
+                    "errors": []
+                }
+            ],
+            "project_metadata": project_meta
+        }
         return normalize_prd(raw_prd)
-
-    def _decompose_ml_competition(
-            self,
-            task: str,
-            reqs: List[str],
-            project_meta: Optional[Dict[str, Any]] = None,
-    ) -> List[UserStory]:
-        """ML Competition decomposition (Universal & TRIZ-Optimized)."""
-        project_meta = project_meta or {}
-        metric_key, kpi_target = _extract_kpi_info(project_meta)
-
-        # Pull data context if available
-        ds_summary = _get_first_parquet_summary(project_meta) or {}
-        row_count = ds_summary.get("row_count", "10M+")
-        col_count = ds_summary.get("column_count", "37")
-
-        stories = [
-            UserStory(
-                id="ML-001",
-                title="Implement Custom Weighted Pearson Loss",
-                description="Create a loss function that maximizes correlation directly.",
-                why="Standard MSE doesn't optimize for the competition's success metric.",
-                acceptance_criteria=[
-                    "Implements weighted average of Pearson correlations",
-                    "Handles amplitude weighting w_i = |y_i|",
-                    "Includes output clipping to [-6, 6]"
-                ],
-                verification="pytest tests/test_loss.py -v",
-                files_touched=["src/losses/weighted_pearson.py", "tests/test_loss.py"]
-            ),
-            UserStory(
-                id="ML-002",
-                title="Set Up Data Loader for LOB Sequences",
-                description="Load 1000-step sequences and implement warm-up logic.",
-                why="Correct data ingestion is foundational for sequence modeling.",
-                acceptance_criteria=[
-                    f"Loads sequences of shape (batch, 1000, {col_count})",
-                    "Implements warm-up steps 0-98 and prediction steps 99-999",
-                    "Respects independent sequence IDs"
-                ],
-                verification="pytest tests/test_data.py -v",
-                files_touched=["src/data/loader.py", "tests/test_data.py"]
-            ),
-            UserStory(
-                id="ML-003",
-                title="Implement Microstructure Signal Engineering",
-                description="Engineer VBI, Spread dynamics, and VPIN signals.",
-                why="Raw features need microstructure context for high precision.",
-                acceptance_criteria=[
-                    "Computes Volume Bucket Imbalance (VBI)",
-                    "Computes Order Flow Toxicity (VPIN)",
-                    "Handles edge cases like zero volume or NaN"
-                ],
-                verification="pytest tests/test_features.py -v",
-                files_touched=["src/features/microsignals.py", "tests/test_features.py"]
-            ),
-            UserStory(
-                id="ML-004",
-                title="Implement CNN Spatial Feature Extractor",
-                description="CNN layers to extract bid/ask relationships.",
-                why="Captures spatial dependencies across price and volume levels.",
-                acceptance_criteria=[
-                    "Specific kernel sizes for 32 input features",
-                    "Unit tests validate output dimensions"
-                ],
-                verification="pytest tests/test_model.py -v",
-                files_touched=["src/models/cnn_extractor.py", "tests/test_model.py"]
-            ),
-            UserStory(
-                id="ML-005",
-                title="Implement Variable Selection and Attention",
-                description="Implement VSN layers and Temporal Self-Attention.",
-                why="Dynamically weighs feature importance across 1000 steps.",
-                acceptance_criteria=[
-                    "VSN weighs raw vs engineered signals",
-                    "Self-attention captures non-linear dependencies"
-                ],
-                verification="pytest tests/test_model.py -v",
-                files_touched=["src/models/variable_selection.py", "src/models/attention.py"]
-            ),
-            UserStory(
-                id="ML-006",
-                title="Assemble TemporalFusionDeepLOB Model",
-                description="Integrate all components into a single PyTorch module.",
-                why="Final cohesive model for dual-target (t0, t1) forecasting.",
-                acceptance_criteria=[
-                    "Integrated CNN, VSN, and Attention",
-                    "Correct dual-head output for price movements"
-                ],
-                verification="pytest tests/test_full_model.py -v",
-                files_touched=["src/models/temporal_fusion_deeplob.py", "tests/test_full_model.py"]
-            ),
-            UserStory(
-                id="ML-007",
-                title="Implement Training Loop and Early Stopping",
-                description="Trainer with intellectual learning rate and metric tracking.",
-                why="Ensures convergence and prevents overfitting.",
-                acceptance_criteria=[
-                    f"Tracks {metric_key} on validation set",
-                    "Implements early stopping with patience",
-                    "Logs training metrics per epoch"
-                ],
-                verification="pytest tests/test_training.py -v",
-                files_touched=["src/training/trainer.py", "tests/test_training.py"]
-            ),
-            UserStory(
-                id="ML-008",
-                title="Implement ONNX Export and Root-Level Inference Script",
-                description="Create root solution.py, export dummy model, and package for submission.",
-                why="Ensures code runs in competition environment and builds submission.zip.",
-                acceptance_criteria=[
-                    "Export model to 'models/final/model.onnx'",
-                    "Create 'solution.py' in the ROOT directory (not src/)",
-                    "Verify the package with the submission script"
-                ],
-                # 🚀 NEW: Force the execution engine to run the export script BEFORE packaging!
-                verification="python src/onnx/export.py && pytest tests/test_onnx.py -v && python scripts/make_submission.py .",
-                files_touched=["src/onnx/export.py", "solution.py", "tests/test_onnx.py"]
-            )
-        ]
-        return stories
-
-    def _decompose_generic(self, task: str, reqs: List[str]) -> List[UserStory]:
-        """Fallback for non-ML projects."""
-        return [
-            UserStory(
-                id="ITEM-001",
-                title="Initial Setup",
-                description="Base project structure.",
-                why="Required to begin development.",
-                acceptance_criteria=["Root main.py exists"],
-                verification="pytest tests/",
-                files_touched=["main.py"]
-            )
-        ]
 
 
 def generate_prd(
         technical_brief: Dict[str, Any],
         domain: str = "llm-app",
         project_metadata: Optional[Dict[str, Any]] = None,
+        deepseek_client: Any = None,
 ) -> Dict[str, Any]:
     """Convenience function to generate PRD."""
-    gen = PRDGenerator()
-    return gen.generate(technical_brief, domain, project_metadata)
+    import asyncio
+    gen = PRDGenerator(deepseek_client)
+    return asyncio.run(gen.generate(technical_brief, domain, project_metadata))
