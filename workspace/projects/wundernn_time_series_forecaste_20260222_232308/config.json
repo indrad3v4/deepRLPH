@@ -1,0 +1,220 @@
+{
+  "name": "WunderNN Time Series Forecaster",
+  "domain": "time_series_forecasting",
+  "description": "",
+  "project_type": "ml_competition",
+  "architecture": "ml_pipeline",
+  "framework": "PyTorch",
+  "language": "Python",
+  "database": "None",
+  "duration_hours": 24,
+  "target_lines_of_code": 5000,
+  "testing_coverage": 85,
+  "parallel_agents": 4,
+  "deployment_target": "Docker",
+  "ml_config": null,
+  "metadata": {
+    "project_type": "ml_competition",
+    "description": "\ud83d\ude80 Project Description: Wunder Challenge LOB Predictorium (OFI-Alpha & Strict Packaging)\n\n1. Project Objective \ud83c\udfaf\nDevelop a high-precision forecasting system to predict dual future price-movement targets (t0, t1) using Limit Order Book (LOB) sequences. The success metric is a Weighted Pearson Correlation >= 0.34.\n\n2. Data & Alpha Engineering \ud83d\udcc8\nInput: Parquet sequences of 1000 timesteps with 32 features. \nCRITICAL ALPHA: Raw LOB data is non-stationary. The data loader MUST convert raw bid/ask volumes into Order Flow Imbalance (OFI) features and normalize all price levels relative to the mid-price. Output shape must remain strictly (batch, 1000, 32). Respect warm-up logic (steps 0-98) and predict only for steps 99-999.\n\n3. Architecture: Temporal Fusion DeepLOB \ud83e\udde0\nSpatial Feature Extraction: CNN layers (DeepLOB style) to extract spatial relationships.\nTemporal/Sequence: Utilize LSTM networks or Temporal Self-Attention, as sequence modeling is mathematically proven to outperform standard MLPs on LOB data.\n\n4. Loss Function: Direct Correlation \ud83c\udfaf\nDo NOT use MSE. Implement a custom Weighted Pearson Loss function that directly maximizes correlation. Apply amplitude weighting (w_i = |y_i|) as per competition rules. Enforce output clipping to the [-6, 6] range.\n\n5. Strict Deployment & Packaging Constraints \ud83d\udce6\nDocker Pathing Fix: The inference script (solution.py) MUST load the ONNX model using a strict relative path: `onnx_path = 'model.onnx'` (no os.path.dirname logic).\nPrerun Test: The pipeline must include a local `prerun.py` script that instantiates PredictionModel and tests a dummy (1, 1000, 32) array.\nFinal Deliverable: The packaging script MUST create a flat `submission.zip` containing EXACTLY three files: solution.py, model.onnx, and utils.py. Actual solution.py and utils.py in root. solution.py should have wundern simplest path to model.onnx. No subdirectories or extra files are allowed.",
+    "tags": [
+      "time-series",
+      "hft",
+      "limit-order-book",
+      "ofi",
+      "pytorch",
+      "wundernn",
+      "deep-lob",
+      "temporal-fusion",
+      "onnx"
+    ],
+    "doc_files": [
+      "/Users/fedorvabisevic/Documents/Programms/deepRLPH/workspace/projects/README_wunder_predictorium.md",
+      "/Users/fedorvabisevic/Documents/Programms/deepRLPH/workspace/projects/DeepLOB_Architecture_Guide_2026.md"
+    ],
+    "dataset_files": [
+      "/Users/fedorvabisevic/Documents/Programms/deepRLPH/workspace/projects/wundernn_time_series_forecaste_20260222_232308/data/raw/valid.parquet",
+      "/Users/fedorvabisevic/Documents/Programms/deepRLPH/workspace/projects/wundernn_time_series_forecaste_20260222_232308/data/raw/train.parquet"
+    ],
+    "baseline_files": [
+      "/Users/fedorvabisevic/Documents/Programms/deepRLPH/workspace/projects/wundernn_time_series_forecaste_20260214_103432/baseline.onnx",
+      "/Users/fedorvabisevic/Documents/Programms/deepRLPH/workspace/projects/wundernn_time_series_forecaste_20260214_103432/solution.py",
+      "/Users/fedorvabisevic/Documents/Programms/deepRLPH/workspace/projects/wundernn_time_series_forecaste_20260222_232308/utils.py"
+    ],
+    "eval_metric": "weighted_pearson",
+    "metric_target": 0.35,
+    "prd_backlog": {
+      "backlog": [
+        {
+          "item_id": "ITEM-001",
+          "title": "Implement Data Loader with OFI Feature Engineering and Normalization",
+          "why": "To preprocess raw LOB data into stationary OFI features and normalize relative to mid-price, ensuring correct input shape for the model as per competition requirements.",
+          "priority": 1,
+          "acceptance_criteria": [
+            "Data loader reads parquet sequences and outputs tensors with shape (batch, 1000, 32)",
+            "Implements Order Flow Imbalance (OFI) calculation for bid/ask volumes",
+            "Normalizes all price levels relative to the mid-price",
+            "Respects warm-up logic by handling steps 0-98 appropriately during data preparation"
+          ],
+          "verification_command": "pytest tests/test_data_loader.py -v",
+          "verification_type": "automated",
+          "files_touched": [
+            "src/data/loader.py",
+            "tests/test_data_loader.py"
+          ],
+          "estimated_lines": 100
+        },
+        {
+          "item_id": "ITEM-002",
+          "title": "Build CNN-LSTM Hybrid Model for Spatio-Temporal Forecasting",
+          "why": "To extract spatial features with CNN and model temporal dependencies with LSTM, adhering to the Temporal Fusion DeepLOB architecture for accurate predictions.",
+          "priority": 2,
+          "acceptance_criteria": [
+            "Model defined with CNN layers for spatial feature extraction",
+            "LSTM layers integrated for sequence modeling",
+            "Output layer predicts dual targets (t0, t1) for steps 99-999",
+            "Model can be instantiated and forward pass works with input shape (batch, 1000, 32)"
+          ],
+          "verification_command": "pytest tests/test_model.py -v",
+          "verification_type": "automated",
+          "files_touched": [
+            "src/models/temporal_fusion.py",
+            "tests/test_model.py"
+          ],
+          "estimated_lines": 120
+        },
+        {
+          "item_id": "ITEM-003",
+          "title": "Develop Custom Weighted Pearson Loss with Amplitude Weighting and Clipping",
+          "why": "To directly maximize correlation as per competition metric, with output clipping to [-6,6] for stable training.",
+          "priority": 3,
+          "acceptance_criteria": [
+            "Loss function implements Weighted Pearson formula with amplitude weighting w_i = |y_i|",
+            "Includes output clipping to range [-6, 6] before loss calculation",
+            "Unit tests cover at least 5 scenarios including edge cases like zero weights or extreme values"
+          ],
+          "verification_command": "pytest tests/test_loss.py -v",
+          "verification_type": "automated",
+          "files_touched": [
+            "src/losses/weighted_pearson.py",
+            "tests/test_loss.py"
+          ],
+          "estimated_lines": 80
+        },
+        {
+          "item_id": "ITEM-004",
+          "title": "Set Up Training Loop with Configuration and Hyperparameters",
+          "why": "To train the model using specified batch size, epochs, and learning rate, integrating all components for end-to-end training.",
+          "priority": 4,
+          "acceptance_criteria": [
+            "Training script uses batch size 32, epochs 100, learning rate 0.001 as per preset",
+            "Integrates data loader, model, and custom loss function",
+            "Includes validation loop and tracks training metrics"
+          ],
+          "verification_command": "pytest tests/test_training.py -v",
+          "verification_type": "automated",
+          "files_touched": [
+            "src/training/trainer.py",
+            "scripts/train.py",
+            "tests/test_training.py"
+          ],
+          "estimated_lines": 150
+        },
+        {
+          "item_id": "ITEM-005",
+          "title": "Implement Weighted Pearson Correlation Evaluation Metric",
+          "why": "To compute the competition metric for model evaluation, ensuring alignment with success criteria.",
+          "priority": 5,
+          "acceptance_criteria": [
+            "Function to calculate weighted Pearson correlation matching competition formula",
+            "Metric can be computed on predictions and ground truth during evaluation"
+          ],
+          "verification_command": "pytest tests/test_metric.py -v",
+          "verification_type": "automated",
+          "files_touched": [
+            "src/metrics/weighted_pearson.py",
+            "tests/test_metric.py"
+          ],
+          "estimated_lines": 70
+        },
+        {
+          "item_id": "ITEM-006",
+          "title": "Create ONNX Export and Inference Script with Strict Pathing",
+          "why": "To prepare the model for deployment in competition environment, ensuring solution.py loads model.onnx with correct relative path.",
+          "priority": 6,
+          "acceptance_criteria": [
+            "Export trained model to ONNX format using PyTorch's export functionality",
+            "solution.py implements PredictionModel interface and loads model.onnx with strict relative path 'model.onnx'",
+            "Inference function handles input shape (1, 1000, 32) and outputs predictions for steps 99-999"
+          ],
+          "verification_command": "pytest tests/test_onnx.py -v",
+          "verification_type": "automated",
+          "files_touched": [
+            "src/onnx/export.py",
+            "solution.py",
+            "tests/test_onnx.py"
+          ],
+          "estimated_lines": 90
+        },
+        {
+          "item_id": "ITEM-007",
+          "title": "Implement Prerun Test and Final Submission Packaging",
+          "why": "To validate the pipeline locally and create submission.zip with exactly three files as per strict deployment constraints.",
+          "priority": 7,
+          "acceptance_criteria": [
+            "prerun.py script instantiates PredictionModel and tests with dummy (1, 1000, 32) array without errors",
+            "Packaging script creates submission.zip containing only solution.py, model.onnx, and utils.py in root directory",
+            "All paths in solution.py use strict relative path 'model.onnx' without os.path.dirname logic"
+          ],
+          "verification_command": "pytest tests/test_onnx.py -v && python scripts/make_submission.py .",
+          "verification_type": "automated",
+          "files_touched": [
+            "prerun.py",
+            "scripts/make_submission.py",
+            "utils.py"
+          ],
+          "estimated_lines": 80
+        }
+      ],
+      "execution_plan": "FOR EACH item: Implement -> Verify -> Commit.",
+      "definition_of_done": [
+        "All tests pass",
+        "Weighted Pearson Correlation metric reaches or exceeds 0.35 on validation set"
+      ],
+      "file_structure": {
+        "src/": [
+          "data/loader.py",
+          "models/temporal_fusion.py",
+          "losses/weighted_pearson.py",
+          "training/trainer.py",
+          "metrics/weighted_pearson.py",
+          "onnx/export.py"
+        ],
+        "tests/": [
+          "test_data_loader.py",
+          "test_model.py",
+          "test_loss.py",
+          "test_training.py",
+          "test_metric.py",
+          "test_onnx.py"
+        ],
+        "scripts/": [
+          "train.py",
+          "make_submission.py"
+        ],
+        "root/": [
+          "solution.py",
+          "prerun.py",
+          "utils.py"
+        ]
+      }
+    },
+    "competition_url": "N/A",
+    "problem_type": "time_series_forecasting",
+    "model_type": "Temporal Fusion DeepLOB",
+    "ml_framework": "PyTorch",
+    "batch_size": 32,
+    "epochs": 50,
+    "learning_rate": 0.001
+  },
+  "timestamp": "2026-02-22T23:23:08.203922"
+}

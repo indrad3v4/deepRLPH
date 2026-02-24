@@ -1,0 +1,137 @@
+{
+  "task": "Develop TorchScript DeepLOB (CNN+LSTM) with OFI Alpha and PyTorch-Native Inference",
+  "domain": "ml_competition",
+  "total_items": 8,
+  "user_stories": [
+    {
+      "id": "ITEM-001",
+      "title": "Data-Centric DataLoader: OFI + Spreads + Mid-Price",
+      "description": "Implement a Pandas-based loader. Calculate mid-price, bid-ask spreads, and Order Flow Imbalance (OFI). Normalize prices relative to mid-price. Output tensor MUST be exactly (batch, 1000, 32).",
+      "acceptance_criteria": [
+        "Dynamically calculates OFI and spreads",
+        "Safely handles missing pyarrow filters using Pandas",
+        "Outputs torch.float32 tensors"
+      ],
+      "verification": "pytest tests/test_data.py -v",
+      "priority": 1,
+      "status": "done",
+      "files_touched": [
+        "src/data/loader.py",
+        "tests/test_data.py"
+      ]
+    },
+    {
+      "id": "ITEM-002",
+      "title": "Vectorized Weighted Pearson Correlation Loss",
+      "description": "Implement a custom loss maximizing Weighted Pearson for (batch, 901, 2) shapes. Must include clipping to [-6, 6] and use absolute value of targets as weights.",
+      "acceptance_criteria": [
+        "Uses torch.reshape instead of .view to avoid contiguous memory errors",
+        "Directly optimizes for the competition metric"
+      ],
+      "verification": "pytest tests/test_loss.py -v",
+      "priority": 2,
+      "status": "done",
+      "files_touched": [
+        "src/losses/weighted_pearson.py"
+      ]
+    },
+    {
+      "id": "ITEM-003",
+      "title": "Goldilocks DeepLOB Architecture (PyTorch Native)",
+      "description": "Build DeepLOB: 1D CNNs -> 1-layer LSTM (hidden=64) -> Linear. DO NOT USE FOR-LOOPS in the forward pass. Must slice output to exactly (batch, 901, 2).",
+      "acceptance_criteria": [
+        "Architecture natively supports torch.jit.script",
+        "No ONNX incompatibilities",
+        "Total parameters ~150k-300k"
+      ],
+      "verification": "pytest tests/test_model.py -v",
+      "priority": 3,
+      "status": "done",
+      "files_touched": [
+        "src/models/deep_lob.py"
+      ]
+    },
+    {
+      "id": "ITEM-004",
+      "title": "Setup Sub-sampled Training Pipeline",
+      "description": "Create train.py. MUST limit sequences to 500 by default to prevent Mac freezing. Use AdamW, LR=0.005, batch_size=16.",
+      "acceptance_criteria": [
+        "Validates model dimensions dynamically",
+        "Saves best_model.pt based on validation loss"
+      ],
+      "verification": "python3 -m py_compile src/train.py",
+      "priority": 4,
+      "status": "done",
+      "files_touched": [
+        "src/train.py"
+      ]
+    },
+    {
+      "id": "ITEM-005",
+      "title": "Implement Exact Evaluation Metric",
+      "description": "Implement local Weighted Pearson evaluator to benchmark progress toward the >0.34 threshold.",
+      "acceptance_criteria": [
+        "Calculates exact weighted pearson locally",
+        "Matches competition math"
+      ],
+      "verification": "pytest tests/test_metrics.py -v",
+      "priority": 5,
+      "status": "done",
+      "files_touched": [
+        "src/metrics/evaluator.py"
+      ]
+    },
+    {
+      "id": "ITEM-006",
+      "title": "TorchScript Compilation & Export",
+      "description": "Write pt_export.py. Load best_model.pt, wrap it in torch.jit.script(), and save as model_jit.pt. Do NOT use ONNX.",
+      "acceptance_criteria": [
+        "Successfully compiles the DeepLOB to C++ TorchScript",
+        "Saves model_jit.pt to the root directory"
+      ],
+      "verification": "python3 -m py_compile src/pt_export.py",
+      "priority": 6,
+      "status": "done",
+      "files_touched": [
+        "src/pt_export.py"
+      ]
+    },
+    {
+      "id": "ITEM-007",
+      "title": "Optimized PyTorch solution.py & prerun.py",
+      "description": "Write solution.py. Load 'model_jit.pt' via torch.jit.load. MUST use 'with torch.inference_mode():' and 'torch.set_num_threads(4)' to maximize CPU speed in the Docker container.",
+      "acceptance_criteria": [
+        "prerun.py tests the model using torch.inference_mode()",
+        "solution.py correctly maps input shapes"
+      ],
+      "verification": "python3 prerun.py",
+      "priority": 7,
+      "status": "done",
+      "files_touched": [
+        "solution.py",
+        "utils.py",
+        "prerun.py"
+      ]
+    },
+    {
+      "id": "ITEM-008",
+      "title": "Strict PyTorch Packaging",
+      "description": "Package the final ZIP containing ONLY solution.py, model_jit.pt, and utils.py.",
+      "acceptance_criteria": [
+        "Creates submissions/submission.zip",
+        "Contains NO ONNX files"
+      ],
+      "verification": "python3 scripts/make_submission.py",
+      "priority": 8,
+      "status": "done",
+      "files_touched": [
+        "scripts/make_submission.py"
+      ]
+    }
+  ],
+  "project_metadata": {
+    "project_type": "ml_competition",
+    "eval_metric": "weighted_pearson",
+    "metric_target": 0.35
+  }
+}

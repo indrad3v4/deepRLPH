@@ -1,0 +1,502 @@
+{
+  "agents": {
+    "agent_1": {
+      "id": "agent_1",
+      "name": "Agent 1",
+      "role": "Generalist implementation agent",
+      "expertise": [
+        "backend",
+        "tests",
+        "refactoring"
+      ],
+      "target_files": [
+        "src/"
+      ],
+      "metric_focus": "weighted_pearson",
+      "kpi_history": [
+        {
+          "summary": "Story ITEM-001 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-001",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-002 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-002",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-003 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-003",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-004 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-004",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-005 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-005",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-006 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-006",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-007 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-007",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-008 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-008",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-001 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-001",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-002 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-002",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-003 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-003",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-004 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-004",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-005 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-005",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-006 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-006",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-007 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-007",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-008 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-008",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-001 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-001",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-002 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-002",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-003 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-003",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-004 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-004",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-005 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-005",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-006 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-006",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-007 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-007",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-008 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-008",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-001 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-001",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-002 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-002",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-003 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-003",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-004 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-004",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-005 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-005",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-006 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-006",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-007 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-007",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-008 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-008",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-001 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-001",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-002 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-002",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-003 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-003",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-004 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-004",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-005 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-005",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-006 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-006",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-007 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-007",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-008 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-008",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-001 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-001",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-002 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-002",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-003 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-003",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-004 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-004",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-005 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-005",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-006 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-006",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-007 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-007",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ITEM-008 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ITEM-008",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        }
+      ],
+      "notes": [
+        "Story ITEM-001 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-002 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-003 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-004 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-005 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-006 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-007 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-008 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-001 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-002 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-003 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-004 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-005 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-006 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-007 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-008 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-001 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-002 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-003 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-004 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-005 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-006 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-007 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-008 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-001 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-002 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-003 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-004 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-005 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-006 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-007 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-008 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-001 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-002 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-003 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-004 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-005 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-006 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-007 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-008 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-001 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-002 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-003 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-004 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-005 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-006 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-007 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ITEM-008 succeeded by agent_1, reward=1.0000, metric=None"
+      ]
+    }
+  }
+}

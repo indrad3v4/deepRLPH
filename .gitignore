@@ -63,6 +63,15 @@ htmlcov/
 *.parquet
 *.onnx
 *.csv
+*.pt
+*.pth
+*.ckpt
+*.zip
 
 # RALPH Workspace 📂
-workspace/
+# We removed the blanket 'workspace/' ignore so your project code is tracked!
+# But we explicitly ignore the heavy data/model folders inside the projects:
+workspace/output/
+workspace/projects/*/data/
+workspace/projects/*/models/
+workspace/projects/*/submissions/
