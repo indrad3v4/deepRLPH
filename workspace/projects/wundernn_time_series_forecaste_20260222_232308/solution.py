@@ -1,133 +1,129 @@
-import sys
 import os
-sys.path.insert(0, os.path.abspath('.'))
-
+import sys
+import torch
 import numpy as np
-import onnxruntime as ort
-from utils import DataPoint, ScorerStepByStep
+from typing import Optional
+
+# Ensure local imports work correctly
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+if CURRENT_DIR not in sys.path:
+    sys.path.append(CURRENT_DIR)
+
+from utils import DataPoint
+
+# Iron Shield Constants - MUST MATCH TRAINING EXACTLY
+EPS = 1e-5
+FEAT_CLIP = 20.0
+WINDOW_SIZE = 1000
+
 
 class PredictionModel:
     """
-    Optimized Temporal Fusion DeepLOB Solution.
-    
-    This solution uses the TemporalFusionDeepLOB model trained on 32 features
-    to predict t0 and t1. The model expects input shape (1, 1000, 32) and
-    outputs shape (1, 901, 2).
+    Guru Predictor: temporal Fusion DeepLOB.
+    Uses a 40-feature Alpha Stack and a rolling 1000-step buffer.
     """
 
-    def __init__(self, model_path=""):
+    def __init__(self):
+        # 1. State Management
         self.current_seq_ix = None
-        self.sequence_history = []
-        
-        # STRICT DOCKER PATHING: Use strict relative path as required
-        onnx_path = 'model.onnx'
-        
-        # Initialize ONNX Runtime Session with optimized settings
-        sess_options = ort.SessionOptions()
-        sess_options.intra_op_num_threads = 1
-        sess_options.inter_op_num_threads = 1
-        sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        sess_options.enable_cpu_mem_arena = True
-        sess_options.enable_mem_pattern = True
-        
-        self.ort_session = None
-        
-        try:
-            # Load ONNX Model with optimized providers
-            self.ort_session = ort.InferenceSession(
-                onnx_path, 
-                sess_options, 
-                providers=['CPUExecutionProvider']
-            )
-            self.input_name = self.ort_session.get_inputs()[0].name
-            self.output_name = self.ort_session.get_outputs()[0].name
-            print(f"Loaded ONNX model from {onnx_path}")
-            print(f"Model input shape: {self.ort_session.get_inputs()[0].shape}")
-            print(f"Model output shape: {self.ort_session.get_outputs()[0].shape}")
-                
-        except Exception as e:
-            print(f"Error loading model resources: {e}")
-            self.ort_session = None
+        self.history = []  # Buffer for raw 32 features
 
-    def predict(self, data_point: DataPoint) -> np.ndarray:
+        # 2. Load the Beast (TorchScript JIT)
+        model_path = os.path.join(CURRENT_DIR, "model_jit.pt")
+        self.device = torch.device("cpu")
+
+        try:
+            self.model = torch.jit.load(model_path, map_location=self.device)
+            self.model.eval()
+            print(f"✅ Success: Model loaded from {model_path}")
+        except Exception as e:
+            print(f"❌ Critical Error loading model: {e}")
+            self.model = None
+
+    def _engineer_features(self, raw_buffer: np.ndarray) -> torch.Tensor:
         """
-        Predict method optimized for correct input shape mapping.
-        
-        The model expects input shape (batch_size=1, sequence_length=1000, features=32)
-        and outputs shape (batch_size=1, 901, 2).
-        
-        We need to return the prediction for the current step (last timestep).
+        The 'Iron Shield' Pipeline: Converts (1000, 32) -> (1, 1000, 40)
+        Matches loader.py logic exactly to preserve the 0.51 Pearson.
         """
-        # Reset state on new sequence
+        # Split 32 raw features
+        prices = raw_buffer[:, :12]
+        volumes = np.clip(raw_buffer[:, 12:24], 0, None)
+        deal_prices = raw_buffer[:, 24:28]
+        deal_volumes = np.clip(raw_buffer[:, 28:32], 0, None)
+
+        # 1. Mid-Price (Calculated on the fly)
+        best_bid, best_ask = prices[:, 0], prices[:, 6]
+        mid_prices = (best_bid + best_ask) / 2.0
+        mid_prices[mid_prices == 0] = 1.0
+        mid_exp = mid_prices[:, np.newaxis]
+
+        # 2. Normalize Prices & Deals
+        norm_prices = (prices - mid_exp) / (mid_exp + EPS)
+
+        norm_deal_prices = (deal_prices - mid_exp) / (mid_exp + EPS)
+        trade_mask = deal_prices > 0
+        norm_deal_prices[~trade_mask] = 0.0
+
+        # 3. Log-Scale Volumes
+        log_volumes = np.log1p(volumes)
+        log_deal_volumes = np.log1p(deal_volumes)
+
+        # 4. OFI & Imbalances
+        ofi = log_volumes[:, :6] - log_volumes[:, 6:12]
+        is_buy = (deal_prices >= best_ask[:, np.newaxis]) & trade_mask
+        is_sell = (deal_prices <= best_bid[:, np.newaxis]) & trade_mask
+        buy_imb = np.sum(log_deal_volumes * is_buy, axis=1, keepdims=True)
+        sell_imb = np.sum(log_deal_volumes * is_sell, axis=1, keepdims=True)
+
+        # 5. Concatenate 40 Features
+        X = np.concatenate([
+            norm_prices, log_volumes, norm_deal_prices,
+            log_deal_volumes, ofi, buy_imb, sell_imb
+        ], axis=1).astype(np.float32)
+
+        # Final Sanitization
+        X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
+        X = np.clip(X, -FEAT_CLIP, FEAT_CLIP)
+
+        # Add batch dimension
+        return torch.from_numpy(X).unsqueeze(0).to(self.device)
+
+    def predict(self, data_point: DataPoint) -> Optional[np.ndarray]:
+        # A. Reset state on new sequence
         if self.current_seq_ix != data_point.seq_ix:
             self.current_seq_ix = data_point.seq_ix
-            self.sequence_history = []
+            self.history = []
 
-        # Update history with the current state
-        self.sequence_history.append(data_point.state.copy())
+        # B. Collect current state
+        self.history.append(data_point.state.astype(np.float32))
 
-        # If prediction not needed yet, return None
+        # C. Return None if evaluator doesn't want a prediction yet
         if not data_point.need_prediction:
             return None
-            
-        if self.ort_session is None:
-            # Return zeros if model failed to load
-            return np.zeros(2, dtype=np.float32)
 
-        # Prepare input window (last 1000 steps)
-        # The model was trained with a context window of exactly 1000
-        history_window = self.sequence_history[-1000:]
-        
-        # Pad with zeros if history is shorter than 1000
-        # This should only happen in early steps of a sequence
-        if len(history_window) < 1000:
-            padding_needed = 1000 - len(history_window)
-            padding = [np.zeros_like(history_window[0])] * padding_needed
-            history_window = padding + history_window
+        if self.model is None:
+            return np.zeros(2)
 
-        # Convert to numpy array with correct dtype
-        data_arr = np.asarray(history_window, dtype=np.float32)
-        
-        # Add batch dimension: (1, 1000, 32)
-        # The model expects exactly this shape
-        data_tensor = np.expand_dims(data_arr, axis=0)
-        
-        # Verify the input shape is correct
-        if data_tensor.shape != (1, 1000, 32):
-            raise ValueError(f"Input tensor shape {data_tensor.shape} != (1, 1000, 32)")
-        
-        # Run inference
-        ort_inputs = {self.input_name: data_tensor}
-        output = self.ort_session.run([self.output_name], ort_inputs)[0]
-        
-        # Verify output shape
-        if output.shape != (1, 901, 2):
-            raise ValueError(f"Output tensor shape {output.shape} != (1, 901, 2)")
-        
-        # The model outputs predictions for steps 100...1000 (901 steps total)
-        # We need the prediction for the current step (step 1000)
-        # Since we always have exactly 1000 steps when need_prediction=True,
-        # we take the last prediction from the output sequence
-        prediction = output[0, -1, :]  # Shape (2,)
-        
-        # Ensure float32 precision for competition evaluator
-        return prediction.astype(np.float32)
+        # D. Sequence Preparation (Temporal Context)
+        # Take the last 1000 steps of history
+        raw_window = self.history[-WINDOW_SIZE:]
 
+        # E. Padding (if history is too short for the model)
+        if len(raw_window) < WINDOW_SIZE:
+            padding = [np.zeros(32, dtype=np.float32)] * (WINDOW_SIZE - len(raw_window))
+            raw_window = padding + raw_window
 
-if __name__ == "__main__":
-    # Local testing
-    test_file = 'data/raw/valid.parquet'
-    
-    if os.path.exists(test_file):
-        model = PredictionModel()
-        scorer = ScorerStepByStep(test_file)
-        
-        print("Testing Optimized Temporal Fusion DeepLOB (ONNX)...")
-        results = scorer.score(model)
-        
-        print("\nResults:")
-        print(f"Mean Weighted Pearson correlation: {results['weighted_pearson']:.6f}")
-        for i, target in enumerate(scorer.targets):
-            print(f"  {target}: {results[target]:.6f}")
-    else:
-        print("Valid parquet not found for testing.")
+        raw_array = np.array(raw_window)
+
+        # F. Feature Engineering & Inference
+        with torch.no_grad():
+            input_tensor = self._engineer_features(raw_array)
+            output = self.model(input_tensor)  # Expected: (1, 901, 2)
+
+        # G. Slice the Prediction
+        # The evaluator asks for prediction STEP BY STEP.
+        # Our model predicts the whole sequence, so we return the last step
+        # corresponding to the current microsecond.
+        prediction = output[0, -1, :].cpu().numpy()
+
+        return prediction.astype(np.float64)  # Parquet/Scorer expects double
