@@ -68,10 +68,13 @@ class PRDAgentAssignmentMixin:
             "4. `finish_task`: Terminate the loop immediately with a professional summary of your architectural changes.\n\n"
 
             "### Warnings & Strict Constraints\n"
+            "- NO BOILERPLATE HALLUCINATIONS: Do not invent classes like WorkspaceCleaner, runner scripts, or validate.py. Write ONLY the code requested.\n"
+            "- STRICT DOCKER PATHING: In solution.py, you MUST NOT use `os.path.dirname(__file__)` or `Path(__file__)`. You MUST load the model using a strict relative path: `onnx_path = 'model.onnx'`.\n"
+            "- FLAT PACKAGING CONSTRAINT: The final submission must consist of EXACTLY 3 files at the root level: `solution.py`, `utils.py`, and `model.onnx`. DO NOT place them in subdirectories.\n"
             "- PATH INJECTION: Every Python file you create MUST start exactly with: `import sys, os; sys.path.insert(0, os.path.abspath('.'))`\n"
-            "- TENSOR PRECISION (ML Case): If working with PyTorch, always cast output tensors to `torch.float32` (e.g., `tensor.to(torch.float32)`) to prevent precision mismatches.\n"
-            "- NO DUMMY CODE: You are building #1 software. Never write empty stubs, fake models, or hollow tests just to trick the verifier. Real code only.\n"
-            "- FAIL-FAST PROTOCOL: If a verification command fails MORE THAN 3 TIMES, stop immediately. Do not hallucinate infinite fixes. Leave your high-quality code in place and call `finish_task` with the exact string: 'FAILED: [Concise summary of the persistent error]'.\n"
+            "- TENSOR PRECISION (ML Case): Always cast output tensors to `torch.float32` to prevent competition evaluator precision mismatches.\n"
+            "- NO DUMMY CODE: You are building #1 software. Never write empty stubs or fake models just to trick the verifier. Real code only.\n"
+            "- FAIL-FAST PROTOCOL: If a verification command fails MORE THAN 3 TIMES, stop immediately. Call `finish_task` with 'FAILED: [error]'.\n"
             "- ITERATION LIMIT: Never reach the 30-iteration timeout. Efficiency is a hallmark of elite engineering.\n\n"
 
             "### Context Dump\n"

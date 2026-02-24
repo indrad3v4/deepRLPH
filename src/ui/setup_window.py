@@ -1751,7 +1751,11 @@ Features:
             side='left', padx=5)
 
         # PRD preview
-        ttk.Label(container, text="PRD Preview:", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(20, 5))
+        prd_header = ttk.Frame(container)
+        prd_header.pack(fill='x', pady=(20, 5))
+        ttk.Label(prd_header, text="PRD Preview (Editable):", font=('Arial', 11, 'bold')).pack(side='left')
+        ttk.Button(prd_header, text="💾 Save PRD Edits", command=self._save_manual_prd_edits).pack(side='left', padx=20)
+
         self.prd_preview = scrolledtext.ScrolledText(container, height=15, width=100, font=('Consolas', 9))
         self.prd_preview.pack(fill='both', expand=True, pady=5)
 
@@ -1831,6 +1835,48 @@ Features:
         text = scrolledtext.ScrolledText(popup, font=('Consolas', 9))
         text.pack(fill='both', expand=True, padx=10, pady=10)
         text.insert('1.0', json.dumps(prd_to_show, indent=2))
+
+    def _save_manual_prd_edits(self):
+        """Save manually edited PRD JSON from the preview box."""
+        if not getattr(self.orchestrator, 'current_project_dir', None):
+            messagebox.showwarning("No Project", "Please select a project first")
+            return
+
+        raw_text = self.prd_preview.get('1.0', 'end').strip()
+        if not raw_text:
+            return
+
+        try:
+            # Parse the JSON from the text box
+            parsed_prd = json.loads(raw_text)
+
+            # Normalize it so the ExecutionEngine accepts it natively
+            normalized_prd = self.orchestrator._normalize_prd_for_engine(parsed_prd)
+            self.current_prd = normalized_prd
+
+            # Save to physical prd.json file
+            prd_file = self.orchestrator.current_project_dir / "prd.json"
+            with open(prd_file, 'w', encoding='utf-8') as f:
+                json.dump(normalized_prd, f, indent=2)
+
+            # Re-display cleanly formatted
+            self.prd_preview.delete('1.0', 'end')
+            self.prd_preview.insert('1.0', json.dumps(normalized_prd, indent=2))
+
+            # Update the agents hint on the execution tab based on the new PRD size
+            try:
+                self._update_agents_hint()
+            except Exception:
+                pass
+
+            messagebox.showinfo("Success",
+                                "PRD saved successfully! You can now switch to the Execution tab and run it.")
+
+        except json.JSONDecodeError as e:
+            messagebox.showerror("Invalid JSON",
+                                 f"Could not parse PRD JSON. Check for missing commas or quotes:\n\n{str(e)}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save PRD:\n{str(e)}")
 
     def _create_execution_tab(self):
         """Execution tab"""
