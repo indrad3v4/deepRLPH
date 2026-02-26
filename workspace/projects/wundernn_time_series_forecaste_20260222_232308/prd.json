@@ -1,21 +1,23 @@
 {
-  "task": "**\nRefactor the `src/train.py` script and its related configuration mechanism to eliminate all hardcoded references to the legacy 'deep_lob' model, ensure the TemporalKAN model is the default and correctly initialized, and update all user-facing outputs to dynamically reflect the active model. This is a code quality and configuration management task to align the system's declarative state with its implemented architecture.",
+  "task": "Refactor the PyTorch training system (`src/train.py` and related configuration) to automatically default to the most advanced available model (currently T-KAN) while maintaining full backward compatibility for explicitly specified legacy models (DeepLOB). This involves eliminating hardcoded model references, implementing a dynamic model discovery and registration system, and ensuring all logging and configuration are model-agnostic.",
   "domain": "time_series_forecasting",
-  "total_items": 3,
+  "total_items": 4,
   "user_stories": [
     {
       "id": "ML-001",
-      "title": "Add command-line argument for model selection",
-      "description": "Modify src/train.py to include a --model argument that allows users to specify which model to use for training. Set the default value to 't_kan' to make TemporalKAN the default model.",
+      "title": "Implement Dynamic Model Registry",
+      "description": "Create a registry system in the models module that automatically discovers and registers all available model classes, with T-KAN as the default.",
       "acceptance_criteria": [
-        "The script can be executed with --model t_kan and --model deep_lob without errors.",
-        "The default model is 't_kan' when no --model argument is provided.",
-        "The help message (--help) displays the model option with its default value."
+        "Registry automatically detects T-KAN and DeepLOB models from src/models directory.",
+        "Function get_model(model_name) returns the correct model class for 'T-KAN' and 'DeepLOB'.",
+        "Function get_default_model() returns the T-KAN model class.",
+        "The registry is accessible via src.models module for easy import."
       ],
-      "verification": "python src/train.py --model t_kan --help 2>&1 | grep -q 'model' && echo 'Verification passed'",
-      "why": "To eliminate hardcoded model references and provide configurability, aligning with best practices for maintainable code.",
+      "verification": "python -c \"from src.models import get_default_model, get_model; assert get_default_model().__name__ == 'T_KAN'; assert get_model('DeepLOB').__name__ == 'DeepLOB'; print('Registry verification passed')\"",
+      "why": "To eliminate hardcoded model references and enable dynamic model selection for the training system.",
       "files_touched": [
-        "src/train.py"
+        "src/models/__init__.py",
+        "src/models/registry.py"
       ],
       "status": "done",
       "attempts": 0,
@@ -23,41 +25,63 @@
     },
     {
       "id": "ML-002",
-      "title": "Implement dynamic model initialization based on configuration",
-      "description": "Refactor the model instantiation code in src/train.py to dynamically load and initialize the model specified by the --model argument. Ensure that TemporalKAN is correctly configured with its required parameters.",
+      "title": "Refactor Training Script for Model Agnosticism",
+      "description": "Modify src/train.py to use the model registry for instantiating models, defaulting to T-KAN when no model is specified, and updating logging to be model-agnostic.",
       "acceptance_criteria": [
-        "When --model t_kan is used, an instance of TemporalKAN is created.",
-        "When --model deep_lob is used, an instance of deep_lob is created.",
-        "The model evaluation step still computes the weighted_pearson correlation, maintaining the target metric of 0.35."
+        "Training script runs without model argument and defaults to T-KAN.",
+        "Training script accepts --model argument to specify model (e.g., DeepLOB) and instantiates correctly.",
+        "Logging outputs use generic terms like 'model' instead of hardcoded model names.",
+        "The weighted_pearson loss function is integrated and reported during training."
       ],
-      "verification": "python src/train.py --model t_kan --epochs 1 --dry-run 2>&1 | grep -i 'temporalkan' && python src/train.py --model deep_lob --epochs 1 --dry-run 2>&1 | grep -i 'deep_lob'",
-      "why": "To ensure that the training script correctly uses the specified model, supporting the system's architectural goal of having TemporalKAN as the default.",
-      "files_touched": [
-        "src/train.py",
-        "src/models/__init__.py"
-      ],
-      "status": "done",
-      "attempts": 0,
-      "errors": []
-    },
-    {
-      "id": "ML-003",
-      "title": "Update user-facing outputs to dynamically reflect active model",
-      "description": "Identify and modify all print statements, log messages, and output strings in src/train.py that contain hardcoded model names. Replace them with references to the active model variable.",
-      "acceptance_criteria": [
-        "All output messages correctly display the name of the active model (e.g., 'Training model: t_kan').",
-        "No static strings like 'deep_lob' appear in outputs when using TemporalKAN.",
-        "The model name in outputs changes dynamically based on the --model argument."
-      ],
-      "verification": "python src/train.py --model t_kan --epochs 1 --dry-run 2>&1 | grep 'Training model: t_kan' && python src/train.py --model deep_lob --epochs 1 --dry-run 2>&1 | grep 'Training model: deep_lob'",
-      "why": "To improve user experience and code clarity by ensuring that outputs accurately reflect the current configuration.",
+      "verification": "python src/train.py --epochs 1 --batch_size 32 --model T-KAN && python src/train.py --epochs 1 --batch_size 32 --model DeepLOB",
+      "why": "To allow automatic use of the most advanced model while maintaining explicit selection for legacy models.",
       "files_touched": [
         "src/train.py"
       ],
       "status": "failed",
       "attempts": 1,
       "errors": [
-        "Command failed with code 1:\n"
+        "Verification timed out (600s)"
+      ]
+    },
+    {
+      "id": "ML-003",
+      "title": "Create Integration Tests for Model System",
+      "description": "Write pytest tests to verify the model registry and training script functionality with different models, including metric computation.",
+      "acceptance_criteria": [
+        "Test file tests/test_model_registry.py exists and tests model discovery and retrieval.",
+        "Test file tests/test_train_integration.py exists and tests training initialization with default and specified models.",
+        "Tests include verification of weighted_pearson metric computation with mock data.",
+        "All tests pass with the refactored code."
+      ],
+      "verification": "pytest tests/test_model_registry.py -v && pytest tests/test_train_integration.py -v",
+      "why": "Ensure the dynamic model system is reliable and free of regressions.",
+      "files_touched": [
+        "tests/test_model_registry.py",
+        "tests/test_train_integration.py"
+      ],
+      "status": "failed",
+      "attempts": 1,
+      "errors": [
+        "Command failed with code 1:\n============================= test session starts ==============================\nplatform darwin -- Python 3.9.13, pytest-7.4.3, pluggy-1.6.0 -- /Users/fedorvabisevic/Documents/Programms/deepRLPH/venv/bin/python3.9\ncachedir: .pytest_cache\nrootdir: /Users/fedorvabisevic/Documents/Programms/deepRLPH\nplugins: anyio-4.12.1\ncollecting ... collected 9 items\n\ntests/test_model_registry.py::TestModelRegistry::test_model_registry_imports PASSED [ 11%]\ntests/test_model_registry.py::TestModelRegistry::test_create_model_factory_function PASSED [ 22%]\ntests/test_model_registry.py::TestModelRegistry::test_model_creation_functions PASSED [ 33%]\ntests/test_model_registry.py::TestModelRegistry::test_model_forward_pass_shapes PASSED [ 44%]\ntests/test_model_registry.py::TestModelRegistry::test_model_parameter_counts PASSED [ 55%]\ntests/test_model_registry.py::TestModelRegistry::test_model_eval_mode PASSED [ 66%]\ntests/test_model_registry.py::TestModelRegistry::test_model_device_movement SKIPPED [ 77%]\ntests/test_model_registry.py::TestModelRegistry::test_model_gradient_flow PASSED [ 88%]\ntests/test_model_registry.py::TestModelRegistry::test_model_batch_independence PASSED [100%]\n\n========================= 8 passed, 1 skipped in 8.40s =========================\n============================= test session starts ==============================\nplatform darwin -- Python 3.9.13, pytest-7.4.3, pluggy-1.6.0 -- /Users/fedorvabisevic/Documents/Programms/deepRLPH/venv/bin/python3.9\ncachedir: .pytest_cache\nr"
+      ]
+    },
+    {
+      "id": "ML-004",
+      "title": "Validate Backward Compatibility and Performance",
+      "description": "Test that the refactored system maintains full backward compatibility with legacy models and that performance metrics are preserved.",
+      "acceptance_criteria": [
+        "Training with DeepLOB model completes without errors and produces similar loss progression as before refactoring.",
+        "The system can achieve a weighted_pearson score of at least 0.35 with appropriate training hyperparameters.",
+        "Export scripts (pt_export.py, onnx_export.py) work correctly with models instantiated via the registry."
+      ],
+      "verification": "python src/train.py --model DeepLOB --epochs 3 --batch_size 32 && python src/pt_export.py --model DeepLOB && python src/onnx_export.py --model DeepLOB",
+      "why": "Confirm that changes do not break existing workflows and that the KPI target is still achievable.",
+      "files_touched": [],
+      "status": "failed",
+      "attempts": 1,
+      "errors": [
+        "Verification timed out (600s)"
       ]
     }
   ],

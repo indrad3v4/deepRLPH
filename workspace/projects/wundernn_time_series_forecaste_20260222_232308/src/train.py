@@ -42,7 +42,7 @@ class TrainingPipeline:
             max_epochs: int = 10,
             patience: int = 3,
             gradient_clip: float = 6.0,
-            model_name: str = 'deep_lob'
+            model_name: str = 'model'
     ):
         self.model = model.to(device)
         self.train_loader = train_loader
@@ -58,7 +58,7 @@ class TrainingPipeline:
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         self.final_dir.mkdir(parents=True, exist_ok=True)
 
-        # Loss function
+        # Loss function - weighted_pearson is integrated here
         self.criterion = WeightedPearsonCorrelationLoss(reduction='mean')
 
         # Optimizer & Scheduler (Strong L2 Regularization applied here)
@@ -73,7 +73,7 @@ class TrainingPipeline:
             'train_pearson': [], 'val_pearson_history': []
         }
 
-        print(f"✅ Training pipeline initialized for {model_name} on {device.upper()}")
+        print(f"✅ Training pipeline initialized for model on {device.upper()}")
         print(f"✅ Total parameters: {sum(p.numel() for p in self.model.parameters()):,}")
 
     def train_epoch(self) -> float:
@@ -164,7 +164,7 @@ class TrainingPipeline:
 
     def train(self):
         print("\n" + "=" * 60)
-        print(f"🚀 Starting Training for {self.model_name.upper()}: Unleashing the Beast (Anti-Overfit Edition)")
+        print(f"🚀 Starting Training: Unleashing the Beast (Anti-Overfit Edition)")
         print("=" * 60)
 
         no_improvement_count = 0
@@ -207,7 +207,7 @@ class TrainingPipeline:
 
         best_pearson = 1.0 - self.history['best_val_loss']
         print("\n" + "=" * 60)
-        print(f"🎯 Training Complete for {self.model_name.upper()}. 🏆 Best Validation Pearson: {best_pearson:.4f} (epoch {self.history['best_epoch']})")
+        print(f"🎯 Training Complete. 🏆 Best Validation Pearson: {best_pearson:.4f} (epoch {self.history['best_epoch']})")
         print("=" * 60)
         
         return best_pearson
@@ -261,14 +261,30 @@ def create_model(model_type: str):
         print("🔧 Creating TemporalKAN model...")
         return create_t_kan()
     else:
-        print("🔧 Creating deep_lob model...")
+        print("🔧 Creating DeepLOB model...")
         return create_deep_lob()
+
+
+def parse_model_arg(model_arg: str) -> str:
+    """Parse and normalize model argument to internal model type."""
+    model_arg = model_arg.lower().strip()
+    
+    # Map user-friendly names to internal model types
+    if model_arg in ['t-kan', 't_kan', 'tkan', 'kan']:
+        return 't_kan'
+    elif model_arg in ['deeplob', 'deep_lob', 'deep-lob']:
+        return 'deep_lob'
+    else:
+        # Default to T-KAN as specified in PRD
+        print(f"⚠️  Unknown model '{model_arg}', defaulting to T-KAN")
+        return 't_kan'
 
 
 def main():
     parser = argparse.ArgumentParser(description='Train time series forecasting models')
-    parser.add_argument('--model', type=str, default='deep_lob', 
-                       choices=['deep_lob', 't_kan'], help='Model type to train')
+    parser.add_argument('--model', type=str, default='T-KAN', 
+                       help='Model type to train (T-KAN or DeepLOB)')
+    parser.add_argument('--batch_size', type=int, default=None, help='Batch size for training')
     parser.add_argument('--max_epochs', type=int, default=None, help='Maximum number of epochs')
     parser.add_argument('--epochs', type=int, default=None, help='Maximum number of epochs (alias for --max_epochs)')
     parser.add_argument('--fast_dev_run', action='store_true', help='Run a quick development test')
@@ -283,14 +299,20 @@ def main():
     if args.dry_run:
         args.fast_dev_run = True
     
+    # Parse and normalize model argument
+    internal_model_type = parse_model_arg(args.model)
+    
     # Load configuration
-    config = load_config(args.model, args.fast_dev_run, args.test_mode)
+    config = load_config(internal_model_type, args.fast_dev_run, args.test_mode)
     
     # Override config with command line arguments
     if args.max_epochs is not None:
         config['max_epochs'] = args.max_epochs
+    if args.batch_size is not None:
+        config['batch_size'] = args.batch_size
     
-    print(f"\n📋 Configuration for {args.model.upper()}:")
+    print(f"\n📋 Configuration:")
+    print(f"  Model: {args.model}")
     for key, value in config.items(): 
         print(f"  {key}: {value}")
     
@@ -301,7 +323,7 @@ def main():
                                 config['max_sequences'], config['test_mode'])
     
     # Create model
-    model = create_model(args.model)
+    model = create_model(internal_model_type)
     
     pipeline = TrainingPipeline(
         model=model,
@@ -312,7 +334,7 @@ def main():
         max_epochs=config['max_epochs'],
         patience=config['patience'],
         gradient_clip=config['gradient_clip'],
-        model_name=args.model
+        model_name=internal_model_type
     )
     
     best_pearson = pipeline.train()

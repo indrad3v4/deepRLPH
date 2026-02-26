@@ -25,7 +25,7 @@ def export_model_to_onnx(model_type='deep_lob', checkpoint_path=None):
     # Create the model based on type
     if model_type == 'deep_lob':
         model = create_deep_lob()
-        input_shape = (1, 1000, 32)
+        input_shape = (1, 1000, 40)  # Fixed: DeepLOB expects 40 features, not 32
     elif model_type == 't_kan':
         model = create_t_kan()
         input_shape = (1, 1000, 40)
@@ -147,10 +147,7 @@ def main():
             print("="*50)
             print(f"Model type: {args.model.upper()}")
             print(f"Model saved as: model.onnx")
-            if args.model == 'deep_lob':
-                print(f"Input shape: (batch, 1000, 32)")
-            else:
-                print(f"Input shape: (batch, 1000, 40)")
+            print(f"Input shape: (batch, 1000, 40)")
             print(f"Output shape: (batch, 901, 2)")
             print(f"ONNX opset version: 14")
             print("="*50)

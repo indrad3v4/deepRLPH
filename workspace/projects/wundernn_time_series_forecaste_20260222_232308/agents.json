@@ -481,6 +481,15 @@
             "metric_value": null,
             "reward": 1.0
           }
+        },
+        {
+          "summary": "Story ML-001 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ML-001",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
         }
       ],
       "notes": [
@@ -535,6 +544,7 @@
         "Story ML-001 succeeded by agent_1, reward=1.0000, metric=None",
         "Story ML-006 succeeded by agent_1, reward=1.0000, metric=None",
         "Story ML-001 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ML-001 succeeded by agent_1, reward=1.0000, metric=None",
         "Story ML-001 succeeded by agent_1, reward=1.0000, metric=None"
       ]
     },
@@ -587,13 +597,23 @@
             "metric_value": null,
             "reward": 1.0
           }
+        },
+        {
+          "summary": "Story ML-002 failed by agent_2, reward=-1.0000, error=Verification timed out (600s)",
+          "metrics": {
+            "story_id": "ML-002",
+            "status": "failed",
+            "metric_value": null,
+            "reward": -1.0
+          }
         }
       ],
       "notes": [
         "Story ML-002 succeeded by agent_2, reward=1.0000, metric=None",
         "Story ML-005 succeeded by agent_2, reward=1.0000, metric=None",
         "Story ML-002 succeeded by agent_2, reward=1.0000, metric=None",
-        "Story ML-002 succeeded by agent_2, reward=1.0000, metric=None"
+        "Story ML-002 succeeded by agent_2, reward=1.0000, metric=None",
+        "Story ML-002 failed by agent_2, reward=-1.0000, error=Verification timed out (600s)"
       ]
     },
     "agent_3": {
@@ -627,11 +647,21 @@
             "metric_value": null,
             "reward": -1.0
           }
+        },
+        {
+          "summary": "Story ML-003 failed by agent_3, reward=-1.0000, error=Command failed with code 1:\n============================= test session starts ==============================\nplatform da",
+          "metrics": {
+            "story_id": "ML-003",
+            "status": "failed",
+            "metric_value": null,
+            "reward": -1.0
+          }
         }
       ],
       "notes": [
         "Story ML-003 succeeded by agent_3, reward=1.0000, metric=None",
-        "Story ML-003 failed by agent_3, reward=-1.0000, error=Command failed with code 1:\n"
+        "Story ML-003 failed by agent_3, reward=-1.0000, error=Command failed with code 1:\n",
+        "Story ML-003 failed by agent_3, reward=-1.0000, error=Command failed with code 1:\n============================= test session starts ==============================\nplatform da"
       ]
     },
     "agent_4": {
@@ -656,10 +686,20 @@
             "metric_value": null,
             "reward": 1.0
           }
+        },
+        {
+          "summary": "Story ML-004 failed by agent_4, reward=-1.0000, error=Verification timed out (600s)",
+          "metrics": {
+            "story_id": "ML-004",
+            "status": "failed",
+            "metric_value": null,
+            "reward": -1.0
+          }
         }
       ],
       "notes": [
-        "Story ML-004 succeeded by agent_4, reward=1.0000, metric=None"
+        "Story ML-004 succeeded by agent_4, reward=1.0000, metric=None",
+        "Story ML-004 failed by agent_4, reward=-1.0000, error=Verification timed out (600s)"
       ]
     }
   }

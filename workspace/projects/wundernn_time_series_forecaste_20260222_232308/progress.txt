@@ -185,3 +185,37 @@
 
 [2026-02-26 05:41:28] ML-002 - SUCCESS
 [agent=agent_2] Verification passed. Metric: N/A
+
+[2026-02-26 06:53:39] ML-001 - SUCCESS
+[agent=agent_1] Verification passed. Metric: N/A
+
+[2026-02-26 07:02:03] ML-003 - FAILED
+[agent=agent_3] Command failed with code 1:
+============================= test session starts ==============================
+platform darwin -- Python 3.9.13, pytest-7.4.3, pluggy-1.6.0 -- /Users/fedorvabisevic/Documents/Programms/deepRLPH/venv/bin/python3.9
+cachedir: .pytest_cache
+rootdir: /Users/fedorvabisevic/Documents/Programms/deepRLPH
+plugins: anyio-4.12.1
+collecting ... collected 9 items
+
+tests/test_model_registry.py::TestModelRegistry::test_model_registry_imports PASSED [ 11%]
+tests/test_model_registry.py::TestModelRegistry::test_create_model_factory_function PASSED [ 22%]
+tests/test_model_registry.py::TestModelRegistry::test_model_creation_functions PASSED [ 33%]
+tests/test_model_registry.py::TestModelRegistry::test_model_forward_pass_shapes PASSED [ 44%]
+tests/test_model_registry.py::TestModelRegistry::test_model_parameter_counts PASSED [ 55%]
+tests/test_model_registry.py::TestModelRegistry::test_model_eval_mode PASSED [ 66%]
+tests/test_model_registry.py::TestModelRegistry::test_model_device_movement SKIPPED [ 77%]
+tests/test_model_registry.py::TestModelRegistry::test_model_gradient_flow PASSED [ 88%]
+tests/test_model_registry.py::TestModelRegistry::test_model_batch_independence PASSED [100%]
+
+========================= 8 passed, 1 skipped in 8.40s =========================
+============================= test session starts ==============================
+platform darwin -- Python 3.9.13, pytest-7.4.3, pluggy-1.6.0 -- /Users/fedorvabisevic/Documents/Programms/deepRLPH/venv/bin/python3.9
+cachedir: .pytest_cache
+r
+
+[2026-02-26 07:09:17] ML-002 - FAILED
+[agent=agent_2] Verification timed out (600s)
+
+[2026-02-26 07:10:14] ML-004 - FAILED
+[agent=agent_4] Verification timed out (600s)

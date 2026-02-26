@@ -16,7 +16,7 @@ def export(model_type='deep_lob', checkpoint_path=None):
     # Determine input shape based on model type
     if model_type == 'deep_lob':
         model = create_deep_lob()
-        input_shape = (1, 1000, 32)
+        input_shape = (1, 1000, 40)  # Fixed: DeepLOB expects 40 features, not 32
     elif model_type == 't_kan':
         model = create_t_kan()
         input_shape = (1, 1000, 40)
