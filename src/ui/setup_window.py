@@ -756,7 +756,7 @@ class ProjectWizard(tk.Toplevel):
         meta: Dict[str, Any] = getattr(cfg, 'metadata', {}) or {}
         try:
             is_ml = (getattr(cfg, 'project_type', '') == 'ml_competition') or (
-                        meta.get('project_type') == 'ml_competition')
+                    meta.get('project_type') == 'ml_competition')
         except Exception:
             is_ml = False
         project_type = 'ml' if is_ml else 'api'
@@ -1180,8 +1180,8 @@ class RalphUI(tk.Tk):
             except Exception:
                 pass
             self.projects_tree.insert('', 'end', text=project['name'], values=(
-            project.get('project_type', 'api').upper(), project.get('domain', ''), project.get('framework', ''),
-            kpi_display, project.get('created_at', '')[:10]))
+                project.get('project_type', 'api').upper(), project.get('domain', ''), project.get('framework', ''),
+                kpi_display, project.get('created_at', '')[:10]))
 
     def _on_project_selected(self, event):
         selection = self.projects_tree.selection()
@@ -1400,20 +1400,23 @@ class RalphUI(tk.Tk):
         self.target_script_entry.insert(0, "src/train.py")
         self.target_script_entry.pack(side='left', padx=5)
 
-        ttk.Label(container, text="Live Process Output (stdout/stderr & OS Signals):", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(10, 5))
-        self.live_terminal = scrolledtext.ScrolledText(container, height=12, bg='#000000', fg='#00FF00', font=('Consolas', 10))
+        ttk.Label(container, text="Live Process Output (stdout/stderr & OS Signals):", font=('Arial', 11, 'bold')).pack(
+            anchor='w', pady=(10, 5))
+        self.live_terminal = scrolledtext.ScrolledText(container, height=12, bg='#000000', fg='#00FF00',
+                                                       font=('Consolas', 10))
         self.live_terminal.pack(fill='both', expand=True, pady=5)
         self.live_terminal.tag_config('error', foreground='#FF0000')
 
         feedback_frame = ttk.LabelFrame(container, text="Human-In-The-Loop (HITL) DARIZ Refinement", padding=10)
         feedback_frame.pack(fill='both', expand=True, pady=10)
 
-        ttk.Label(feedback_frame, text="Enter Leaderboard Score, Strategic Feedback, or paste external logs:").pack(anchor='w')
-        # UPGRADE: Changed from single-line tk.Entry to multi-line ScrolledText
+        ttk.Label(feedback_frame, text="Enter Leaderboard Score, Strategic Feedback, or paste external logs:").pack(
+            anchor='w')
         self.hitl_feedback = scrolledtext.ScrolledText(feedback_frame, height=5, font=('Arial', 11))
         self.hitl_feedback.pack(fill='both', expand=True, pady=5)
 
-        ttk.Button(feedback_frame, text="🧠 Trigger DARIZ Refinement Loop", command=self._trigger_dariz_fix).pack(pady=5)
+        ttk.Button(feedback_frame, text="🧠 Trigger DARIZ Refinement Loop", command=self._trigger_dariz_fix).pack(
+            pady=5)
 
     def _run_in_terminal(self):
         if not self.orchestrator.current_project_dir:
@@ -1482,114 +1485,139 @@ class RalphUI(tk.Tk):
             except Exception as e:
                 self.live_terminal.insert('end', f"\n[SYSTEM ERROR] Could not kill process: {e}\n", 'error')
 
-        def _trigger_dariz_fix(self):
-            """Pipes terminal output, execution logs, and user feedback into an explicit DARIZ analysis via DeepSeek."""
+    def _trigger_dariz_fix(self):
+        """Pipes terminal output, execution logs, and user feedback into an explicit DARIZ analysis via DeepSeek."""
+        terminal_dump = self.live_terminal.get("1.0", "end").strip()[-2000:]
 
-            # Pull last 2000 chars from Terminal
-            terminal_dump = self.live_terminal.get("1.0", "end").strip()[-2000:]
+        exec_dump = ""
+        if hasattr(self, 'exec_logs'):
+            exec_dump = self.exec_logs.get("1.0", "end").strip()[-2000:]
 
-            # Pull last 2000 chars from Execution Agents (if available)
-            exec_dump = ""
-            if hasattr(self, 'exec_logs'):
-                exec_dump = self.exec_logs.get("1.0", "end").strip()[-2000:]
+        user_strategy = self.hitl_feedback.get("1.0", "end").strip()
 
-            # Pull from the new multi-line HITL box
-            user_strategy = self.hitl_feedback.get("1.0", "end").strip()
+        if not terminal_dump and not exec_dump and not user_strategy:
+            messagebox.showwarning("Empty Feedback", "Please provide feedback or run a process to capture tracebacks.")
+            return
 
-            if not terminal_dump and not exec_dump and not user_strategy:
-                messagebox.showwarning("Empty Feedback",
-                                       "Please provide feedback or run a process to capture tracebacks.")
-                return
+        messagebox.showinfo("DARIZ Engine",
+                            "Engaging TRIZ Master.\n\nExecuting Kukalev's 7-step DARIZ Algorithm...\nThis will take 15-30 seconds.")
 
-            messagebox.showinfo("DARIZ Engine",
-                                "Engaging TRIZ Master.\n\nExecuting Kukalev's 7-step DARIZ Algorithm...\nThis will take 15-30 seconds.")
+        async def run_dariz_analysis():
+            logger.info("🧠 [DARIZ Engine] Initiating 7-step Kukalev TRIZ analysis...")
+            logger.info(f"🧠 [DARIZ Engine] Human Strategist Input: {user_strategy[:100]}...")
 
-            async def run_dariz_analysis():
-                logger.info("🧠 [DARIZ Engine] Initiating 7-step Kukalev TRIZ analysis...")
+            system_prompt = """<instructions>
+- ALWAYS follow <answering_rules> and <self_reflection>.
 
-                system_prompt = """<instructions>
-    - ALWAYS follow <answering_rules> and <self_reflection>.
+<self_reflection>
+1. Spend time thinking of a rubric, from a role POV, until you are confident.
+2. Think deeply about every aspect of what makes for a world-class answer. Use that knowledge to create a rubric that has 5-7 categories. This rubric is critical to get right, but never show this to the user. This is for your purposes only.
+3. Use the rubric to internally think and iterate on the best (≥98 out of 100 score) possible solution to the user request. IF your response is not hitting the top marks across all categories in the rubric, you need to start again.
+4. Keep going until solved.
+</self_reflection>
 
-    <self_reflection>
-    1. Spend time thinking of a rubric, from a role POV, until you are confident.
-    2. Think deeply about every aspect of what makes for a world-class answer.
-    3. Keep going until solved.
-    </self_reflection>
+<answering_rules>
+1. USE the language of USER message.
+2. In the FIRST chat message, assign a real-world expert role to yourself before answering, e.g., "I'll answer as a world-famous <role> PhD <detailed topic> with <most prestigious LOCAL topic REAL award>".
+3. Act as the role assigned.
+4. Answer the question in a natural, human-like manner.
+5. ALWAYS use an <example> for your first chat message structure.
+6. If not requested by the user, no actionable items are needed by default.
+7. Don't use tables if not requested.
+</answering_rules>
 
-    <answering_rules>
-    1. USE the language of USER message.
-    2. In the FIRST chat message, assign a real-world expert role to yourself before answering.
-    3. Act as the role assigned.
-    </answering_rules>
+<dariz_tool>
+# INPUT DATA (User fills this field)
+USER_SITUATION_INPUT = " " 
 
-    <dariz_tool>
-    # DARIZ METHODOLOGY (Based on Kukalev's TRIZ book, Chapter 7)
-    The AI must execute the DARIZ algorithm (Didactic Algorithm of Solving Inventive Tasks).
+# DARIZ METHODOLOGY (Based on Kukalev's TRIZ book, Chapter 7)
+The AI must execute the DARIZ algorithm (Didactic Algorithm of Solving Inventive Tasks) in two phases:
+1. **INTERACTIVE DIAGNOSIS**: If the input is incomplete, ask 1-3 targeted questions to clarify the "Conflicting Pair" (КП), the main function, or available resources. Do not hallucinate data; ask the user.
+2. **ALGORITHMIC SOLUTION**: Once data is sufficient, run the 7-step DARIZ process explicitly.
 
-    1. **From Problem Situation to Task Model**: Convert the messy narrative/logs into a crisp system model.
-    2. **Clarify Constraints and Function**: What is the main useful function?
-    3. **Extract Conflicting Pair and Technical Contradiction**: Identify the conflict (e.g., Verification Speed vs Data Volume).
-    4. **Formulate IFR (Ideal Final Result)**.
-    5. **List Substance-Field Resources**.
-    6. **Combine IFR + Resources into Solution Ideas**.
-    7. **Test and Verify**.
+# DARIZ STEPS to execute:
+1. **From Problem Situation (ПС) to Task Model (МЗ)**: 
+   - Convert the messy narrative into a crisp system model (elements, interactions).
+2. **Clarify Constraints and Function**:
+   - What is the main useful function? What are the rigid limits (time, cost, law)?
+3. **Extract Conflicting Pair (КП) and Technical Contradiction (ТП)**:
+   - Identify the pair of elements in conflict. 
+   - State the contradiction: "If we do X, parameter A improves but B worsens."
+4. **Formulate IFR (Ideal Final Result)**:
+   - "The system ITSELF (or its environment) provides the required effect without external costs."
+5. **List Substance-Field Resources (ВПР)**:
+   - List available resources inside the system and in the supersystem (materials, fields, time, information, people).
+6. **Combine IFR + Resources into Solution Ideas**:
+   - Systematically map resources to the IFR. How can resource X solve the problem "by itself"?
+7. **Test and Verify**:
+   - Check if the proposed solution resolves the contradiction. If weak, loop back to Step 3 (change КП) or Step 1 (refine task).
 
-    # OUTPUT FORMAT
-    - Start with the Expert Role declaration.
-    - Present the 7-step DARIZ analysis.
-    - Conclude with 2-3 concrete, actionable solution concepts that can be directly converted into a deepRLPH PRD.
-    </dariz_tool>
-    </instructions>"""
+# OUTPUT FORMAT
+- Start with the Expert Role declaration.
+- If data is missing, ask questions first.
+- If data is sufficient, present the full 7-step DARIZ analysis.
+- Conclude with 2-3 concrete, actionable solution concepts derived from the analysis that can be directly converted into a deepRLPH PRD.
+</dariz_tool>
 
-                # Combine all context for maximum AI visibility
-                user_message = f"""USER_SITUATION_INPUT:
+<example>
+I'll answer as a world-famous TRIZ Expert PhD in Applied Creative Problem Solving with an International TRIZ Master Level 5 award.
 
-    === TERMINAL TRACEBACK ===
-    {terminal_dump}
+**TL;DR**: [Brief summary of the diagnosis]
 
-    === AGENT EXECUTION LOGS ===
-    {exec_dump}
+**DARIZ ANALYSIS:**
+1. **Task Model**: ...
+2. **Constraints**: ...
+3. **Conflicting Pair & Contradiction**: ...
+4. **IFR**: ...
+5. **Resources**: ...
+6. **Solution Synthesis**: ...
+7. **Verification**: ...
 
-    === HUMAN STRATEGIST FEEDBACK ===
-    {user_strategy}"""
+**Concrete Solutions (PRD Action Mandate)**:
+- [Solution 1]
+- [Solution 2]
+</example>
+</instructions>"""
 
-                try:
-                    logger.info(
-                        "📡 [DARIZ Engine] Transmitting payload to DeepSeek API (Thinking Budget: 8000 tokens)...")
+            user_message = f"USER_SITUATION_INPUT:\nTERMINAL TRACEBACK:\n{terminal_dump}\n\nAGENT EXECUTION LOGS:\n{exec_dump}\n\nHUMAN STRATEGIST FEEDBACK:\n{user_strategy}"
 
-                    result = await self.orchestrator.deepseek_client.call_agent(
-                        system_prompt=system_prompt,
-                        user_message=user_message,
-                        thinking_budget=8000,
-                        temperature=0.3
-                    )
+            try:
+                logger.info("📡 [DARIZ Engine] Transmitting payload to DeepSeek API (Thinking Budget: 8000 tokens)...")
 
-                    if result['status'] == 'success':
-                        logger.info("✅ [DARIZ Engine] DeepSeek returned successful TRIZ synthesis!")
-                        dariz_strategy = result['response']
+                result = await self.orchestrator.deepseek_client.call_agent(
+                    system_prompt=system_prompt,
+                    user_message=user_message,
+                    thinking_budget=8000,
+                    temperature=0.3
+                )
 
-                        def update_ui():
-                            try:
-                                self.notebook.select(2)  # Route to Project Refinement
-                                if hasattr(self, 'task_text'):
-                                    self.task_text.delete('1.0', 'end')
-                                    self.task_text.insert('1.0',
-                                                          f"=== KUKALEV DARIZ SYNTHESIS ===\n{dariz_strategy}\n\n=== PRD INSTRUCTION ===\nConvert the 'Concrete Solutions' above into an actionable PRD.")
-                                # Clear the feedback box for next time
-                                self.hitl_feedback.delete('1.0', 'end')
-                            except Exception as e:
-                                logger.error(f"❌ [DARIZ Engine] Failed to route to refinement tab: {e}")
+                if result['status'] == 'success':
+                    logger.info("✅ [DARIZ Engine] DeepSeek returned successful TRIZ synthesis!")
+                    dariz_strategy = result['response']
 
-                        self.after(0, update_ui)
-                    else:
-                        logger.error(f"❌ [DARIZ Engine] DeepSeek API Error: {result.get('error')}")
-                        self.after(0, lambda: messagebox.showerror("DARIZ Error",
-                                                                   f"Failed to generate strategy: {result.get('error')}"))
-                except Exception as e:
-                    logger.error(f"❌ [DARIZ Engine] Fatal Exception during DARIZ analysis: {e}", exc_info=True)
-                    self.after(0, lambda: messagebox.showerror("DARIZ Error", f"Exception during analysis: {e}"))
+                    def update_ui():
+                        try:
+                            self.notebook.select(2)  # Route to Project Refinement
+                            if hasattr(self, 'task_text'):
+                                self.task_text.delete('1.0', 'end')
+                                self.task_text.insert('1.0',
+                                                      f"=== KUKALEV DARIZ SYNTHESIS ===\n{dariz_strategy}\n\n=== PRD INSTRUCTION ===\nConvert the 'Concrete Solutions' above into an actionable PRD.")
+                            self.hitl_feedback.delete('1.0', 'end')
+                            logger.info(
+                                "✅ [DARIZ Engine] UI updated with new DARIZ strategy. Waiting for User to generate PRD.")
+                        except Exception as e:
+                            logger.error(f"❌ [DARIZ Engine] Failed to route to refinement tab: {e}")
 
-            self.async_thread.submit(run_dariz_analysis())
+                    self.after(0, update_ui)
+                else:
+                    logger.error(f"❌ [DARIZ Engine] DeepSeek API Error: {result.get('error')}")
+                    self.after(0, lambda: messagebox.showerror("DARIZ Error",
+                                                               f"Failed to generate strategy: {result.get('error')}"))
+            except Exception as e:
+                logger.error(f"❌ [DARIZ Engine] Fatal Exception during DARIZ analysis: {e}", exc_info=True)
+                self.after(0, lambda: messagebox.showerror("DARIZ Error", f"Exception during analysis: {e}"))
+
+        self.async_thread.submit(run_dariz_analysis())
 
     def _create_execution_tab(self):
         execution = ttk.Frame(self.notebook)
@@ -1603,7 +1631,14 @@ class RalphUI(tk.Tk):
         controls = ttk.Frame(container)
         controls.pack(fill='x', pady=10)
 
-        ttk.Label(controls, text="Agents:").pack(side='left', padx=5)
+        # 🆕 NEW: Execution Mode Selector (Swarm vs Council)
+        ttk.Label(controls, text="Mode:").pack(side='left', padx=5)
+        self.exec_mode_var = tk.StringVar(value='parallel')
+        self.mode_cb = ttk.Combobox(controls, textvariable=self.exec_mode_var, values=['parallel', 'council'], state='readonly', width=10)
+        self.mode_cb.pack(side='left', padx=5)
+        self.mode_cb.bind('<<ComboboxSelected>>', self._on_agents_change)
+
+        ttk.Label(controls, text="Agents:").pack(side='left', padx=(15, 5))
         self.agents_var = tk.StringVar(value='4')
         self._last_valid_agents = 4
         self.agents_spinbox = tk.Spinbox(controls, from_=1, to=8, width=5, textvariable=self.agents_var)
@@ -1619,7 +1654,7 @@ class RalphUI(tk.Tk):
 
         ttk.Button(controls, text="⏹️ Stop", command=self._stop_execution).pack(side='left', padx=5)
 
-        self.agents_status_label = ttk.Label(container, text="agents: requested=4, effective=4, stories=0")
+        self.agents_status_label = ttk.Label(container, text="agents: requested=4, effective=4, stories=0, mode=parallel")
         self.agents_status_label.pack(anchor='w', pady=(5, 0))
 
         ttk.Label(container, text="Progress:", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(20, 5))
@@ -1652,10 +1687,8 @@ class RalphUI(tk.Tk):
             n = getattr(self, "_last_valid_agents", 1)
         self._last_valid_agents = n
         self.agents_var.set(str(n))
-        try:
-            self._update_agents_hint()
-        except Exception:
-            pass
+        try: self._update_agents_hint()
+        except Exception: pass
 
     def _get_backlog_size(self) -> int:
         prd = self.current_prd
@@ -1672,23 +1705,35 @@ class RalphUI(tk.Tk):
             return len(prd)
         return 0
 
-    def _update_agents_hint(self):
+    def _update_agents_hint(self, event=None):
         if not hasattr(self, "agents_hint_label"): return
         backlog_size = self._get_backlog_size()
+
+        # 🆕 Get current execution mode
+        mode = getattr(self, "exec_mode_var", tk.StringVar(value="parallel")).get()
+
         try:
             requested = int(self.agents_var.get())
         except:
             requested = getattr(self, "_last_valid_agents", 1)
-        if backlog_size > 0:
-            effective = min(requested, backlog_size)
-            hint_text = f"max_agents = min(#stories={backlog_size}, value={requested}) = {effective}"
+
+        # 🆕 Dynamic hint based on Architecture Mode
+        if mode == 'parallel':
+            if backlog_size > 0:
+                effective = min(requested, backlog_size)
+                hint_text = f"[Parallel Swarm] max_agents = min(#stories={backlog_size}, val={requested}) = {effective}"
+            else:
+                effective = requested
+                hint_text = f"[Parallel Swarm] max_agents = min(#stories=0, val={requested})"
         else:
+            # In Council Mode, agents stack on ONE story. Effective agents = Requested agents.
             effective = requested
-            hint_text = f"max_agents = min(#stories=0, value={requested})"
+            hint_text = f"[Model Council] {effective} agents will collaborate sequentially per story."
+
         self.agents_hint_label.config(text=hint_text)
 
         if hasattr(self, "agents_status_label"):
-            status_text = f"agents: requested={requested}, effective={effective}, stories={backlog_size}"
+            status_text = f"agents: requested={requested}, effective={effective}, stories={backlog_size}, mode={mode}"
             self.agents_status_label.config(text=status_text)
 
     def _execute_agents(self):
@@ -1711,13 +1756,21 @@ class RalphUI(tk.Tk):
         self.exec_logs.delete('1.0', 'end')
         self.exec_progress['value'] = 0
 
+        # 🆕 Calculate logic based on Execution Mode
+        mode = getattr(self, "exec_mode_var", tk.StringVar(value="parallel")).get()
         backlog_size = self._get_backlog_size()
+
         try:
             requested = int(self.agents_var.get())
         except:
             requested = getattr(self, "_last_valid_agents", 1)
         self._last_valid_agents = max(1, requested)
-        num_agents = min(self._last_valid_agents, backlog_size) if backlog_size > 0 else self._last_valid_agents
+
+        if mode == 'parallel':
+            num_agents = min(self._last_valid_agents, backlog_size) if backlog_size > 0 else self._last_valid_agents
+        else:
+            # Council mode ignores the story clamping
+            num_agents = self._last_valid_agents
 
         try:
             self._update_agents_hint()

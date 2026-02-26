@@ -85,18 +85,35 @@ class TrainingPipeline:
             features = batch_data['features'].to(self.device)
             targets = batch_data['targets'].to(self.device)
 
+            # Debug: Print shape of incoming data
+            if batch_idx == 0:
+                print(f"  📊 Batch {batch_idx + 1}: features shape = {features.shape}, targets shape = {targets.shape}")
+                # Check data statistics
+                print(f"  📊 Features stats: mean={features.mean().item():.4f}, std={features.std().item():.4f}")
+                print(f"  📊 Targets stats: mean={targets.mean().item():.4f}, std={targets.std().item():.4f}")
+
             self.optimizer.zero_grad()
             predictions = self.model(features)
+
+            # Debug: Print prediction shape
+            if batch_idx == 0:
+                print(f"  📊 Predictions shape: {predictions.shape}")
+                print(f"  📊 Predictions stats: mean={predictions.mean().item():.4f}, std={predictions.std().item():.4f}")
 
             # ==========================================
             # 🚨 THE TRUE ALIGNMENT FIX (Separation in Space/Time)
             # ==========================================
             # We must align the ends of the sequences (-min_len:), not the beginnings!
             # This prevents the model from using Time 99 features to predict Time 0 targets.
+            # Model outputs (batch, 901, 2), targets are (batch, 1000, 2)
+            # We need to align them properly
             if predictions.shape[1] != targets.shape[1]:
-                min_len = min(predictions.shape[1], targets.shape[1])
-                predictions = predictions[:, -min_len:, :]
-                targets = targets[:, -min_len:, :]
+                # Model outputs are shorter by 99 timesteps
+                # Take last 901 timesteps of targets to align with predictions
+                predictions_len = predictions.shape[1]
+                targets = targets[:, -predictions_len:, :]
+                if batch_idx == 0:
+                    print(f"  🔧 Aligned targets shape: {targets.shape}")
 
             loss = self.criterion(predictions, targets)
 
@@ -114,7 +131,7 @@ class TrainingPipeline:
             total_loss += loss.item()
             valid_batches += 1
 
-            if (batch_idx + 1) % 50 == 0:
+            if (batch_idx + 1) % 10 == 0:
                 batch_pearson = 1.0 - loss.item()
                 print(f"  Batch {batch_idx + 1}/{len(self.train_loader)} | Loss: {loss.item():.4f} | Pearson approx: {batch_pearson:.4f}")
 
@@ -126,7 +143,7 @@ class TrainingPipeline:
         valid_batches = 0
 
         with torch.no_grad():
-            for batch_data in self.val_loader:
+            for batch_idx, batch_data in enumerate(self.val_loader):
                 features = batch_data['features'].to(self.device)
                 targets = batch_data['targets'].to(self.device)
 
@@ -136,9 +153,8 @@ class TrainingPipeline:
                 # 🚨 THE TRUE ALIGNMENT FIX (Validation)
                 # ==========================================
                 if predictions.shape[1] != targets.shape[1]:
-                    min_len = min(predictions.shape[1], targets.shape[1])
-                    predictions = predictions[:, -min_len:, :]
-                    targets = targets[:, -min_len:, :]
+                    predictions_len = predictions.shape[1]
+                    targets = targets[:, -predictions_len:, :]
 
                 loss = self.criterion(predictions, targets)
 
@@ -290,6 +306,7 @@ def main():
     parser.add_argument('--fast_dev_run', action='store_true', help='Run a quick development test')
     parser.add_argument('--dry-run', action='store_true', help='Run a quick development test (alias for --fast_dev_run)')
     parser.add_argument('--test_mode', action='store_true', help='Use synthetic data for testing')
+    parser.add_argument('--data_path', type=str, default='data/raw', help='Path to data directory containing train.parquet and valid.parquet')
     
     args = parser.parse_args()
     
@@ -313,13 +330,28 @@ def main():
     
     print(f"\n📋 Configuration:")
     print(f"  Model: {args.model}")
+    print(f"  Data Path: {args.data_path}")
     for key, value in config.items(): 
         print(f"  {key}: {value}")
     
+    # Construct file paths
+    train_file = os.path.join(args.data_path, 'train.parquet')
+    valid_file = os.path.join(args.data_path, 'valid.parquet')
+    
+    print(f"\n📁 Data Files:")
+    print(f"  Train: {train_file}")
+    print(f"  Valid: {valid_file}")
+    
     print(f"\nInitializing Data Loaders...")
-    train_dataset = OFIDataLoader('data/raw/train.parquet', config['sequence_length'], config['batch_size'], True,
+    
+    # For development runs with few epochs, limit data size to speed up loading
+    if args.max_epochs == 1 and not args.test_mode:
+        print("  ⚡ Development mode detected: Limiting max_sequences to 100 for faster loading")
+        config['max_sequences'] = min(config['max_sequences'], 100)
+    
+    train_dataset = OFIDataLoader(train_file, config['sequence_length'], config['batch_size'], True,
                                   'cpu', config['max_sequences'], config['test_mode'])
-    val_dataset = OFIDataLoader('data/raw/valid.parquet', config['sequence_length'], config['batch_size'], False, 'cpu',
+    val_dataset = OFIDataLoader(valid_file, config['sequence_length'], config['batch_size'], False, 'cpu',
                                 config['max_sequences'], config['test_mode'])
     
     # Create model

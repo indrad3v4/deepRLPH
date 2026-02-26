@@ -490,6 +490,15 @@
             "metric_value": null,
             "reward": 1.0
           }
+        },
+        {
+          "summary": "Story DL-007 failed by agent_1, reward=-1.0, error=Verification timed out (600s)",
+          "metrics": {
+            "story_id": "DL-007",
+            "status": "failed",
+            "metric_value": null,
+            "reward": -1.0
+          }
         }
       ],
       "notes": [
@@ -545,7 +554,8 @@
         "Story ML-006 succeeded by agent_1, reward=1.0000, metric=None",
         "Story ML-001 succeeded by agent_1, reward=1.0000, metric=None",
         "Story ML-001 succeeded by agent_1, reward=1.0000, metric=None",
-        "Story ML-001 succeeded by agent_1, reward=1.0000, metric=None"
+        "Story ML-001 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story DL-007 failed by agent_1, reward=-1.0, error=Verification timed out (600s)"
       ]
     },
     "agent_2": {
@@ -701,6 +711,54 @@
         "Story ML-004 succeeded by agent_4, reward=1.0000, metric=None",
         "Story ML-004 failed by agent_4, reward=-1.0000, error=Verification timed out (600s)"
       ]
+    },
+    "agent_5": {
+      "id": "agent_5",
+      "name": "Agent 5",
+      "role": "Generalist implementation agent",
+      "expertise": [
+        "backend",
+        "tests",
+        "refactoring"
+      ],
+      "target_files": [
+        "src/"
+      ],
+      "metric_focus": "weighted_pearson",
+      "kpi_history": [],
+      "notes": []
+    },
+    "agent_6": {
+      "id": "agent_6",
+      "name": "Agent 6",
+      "role": "Generalist implementation agent",
+      "expertise": [
+        "backend",
+        "tests",
+        "refactoring"
+      ],
+      "target_files": [
+        "src/"
+      ],
+      "metric_focus": "weighted_pearson",
+      "kpi_history": [],
+      "notes": []
+    },
+    "agent_7": {
+      "id": "agent_7",
+      "name": "Agent 7",
+      "role": "Generalist implementation agent",
+      "expertise": [
+        "backend",
+        "tests",
+        "refactoring"
+      ],
+      "target_files": [
+        "src/"
+      ],
+      "metric_focus": "weighted_pearson",
+      "kpi_history": [],
+      "notes": []
     }
   }
 }

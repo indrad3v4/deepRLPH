@@ -8,6 +8,7 @@ Complete integration of:
 - BE-005: Schema-aware PRD generation
 - BE-007: Submission packaging
 - BE-008: JSONL trace logging
+- PHASE 2 UPGRADE: Model Council State Routing (MoE)
 """
 
 from dataclasses import dataclass, asdict, field
@@ -40,7 +41,7 @@ logger = logging.getLogger("Orchestrator")
 
 
 # ============================================================================
-# DATA MODELS (unchanged from original)
+# DATA MODELS
 # ============================================================================
 
 class ProjectType(str, Enum):
@@ -97,38 +98,31 @@ class MLModelType(str, Enum):
 @dataclass
 class MLConfig:
     """ML Competition specific configuration"""
-    # Competition metadata
-    competition_source: str = ""  # e.g., "wundernn.io", "kaggle", "custom"
+    competition_source: str = ""
     competition_url: str = ""
 
-    # Dataset
-    dataset_files: List[str] = field(default_factory=list)  # ["train.csv", "test.csv"]
-    problem_type: str = "time_series_forecasting"  # classification, regression, etc.
+    dataset_files: List[str] = field(default_factory=list)
+    problem_type: str = "time_series_forecasting"
     sequence_length: int = 1000
     num_features: int = 32
     target_variable: str = ""
 
-    # Model
     model_type: str = "LSTM"
     ml_framework: str = "PyTorch"
 
-    # Training
     batch_size: int = 64
     epochs: int = 100
     learning_rate: float = 0.001
     optimizer: str = "Adam"
     loss_function: str = "MSE"
 
-    # Evaluation
-    eval_metric: str = "R²"  # R², RMSE, MAE, Accuracy
+    eval_metric: str = "R²"
     validation_split: float = 0.2
     cross_validation: str = "time_series_split"
 
-    # Hardware
     gpu_required: bool = False
     estimated_training_hours: int = 24
 
-    # Submission
     submission_format: str = "CSV"
     submission_deadline: str = ""
 
@@ -142,15 +136,13 @@ class MLConfig:
 
 @dataclass
 class ProjectConfig:
-    """Project configuration - sent from UI (ENHANCED for ML)"""
+    """Project configuration"""
     name: str
     domain: str
     description: str = ""
 
-    # Project type determines which fields are used
-    project_type: str = "api_dev"  # api_dev | ml_competition | data_pipeline | llm_app
+    project_type: str = "api_dev"
 
-    # API/Backend fields (used when project_type == "api_dev")
     architecture: str = "clean_architecture"
     framework: str = "FastAPI"
     language: str = "Python"
@@ -161,19 +153,14 @@ class ProjectConfig:
     parallel_agents: int = 4
     deployment_target: str = "Docker"
 
-    # ML fields (used when project_type == "ml_competition")
     ml_config: Optional[MLConfig] = None
-
-    # Flexible project metadata (competition URL, metric, presets, etc.)
     metadata: Dict[str, Any] = field(default_factory=dict)
-
     timestamp: str = ""
 
     def __post_init__(self):
         if not self.timestamp:
             self.timestamp = datetime.now().isoformat()
 
-        # If ml_config is a dict, convert to MLConfig
         if isinstance(self.ml_config, dict):
             self.ml_config = MLConfig.from_dict(self.ml_config)
 
@@ -192,18 +179,18 @@ class ProjectConfig:
 
 @dataclass
 class ExecutionState:
-    """Tracks parallel execution state across all agents (PR-002)"""
+    """Tracks parallel execution state across all agents"""
     execution_id: str
     project_id: str
     start_time: str
-    status: str = "running"  # running | completed | failed | partial
+    status: str = "running"
     num_agents: int = 4
     total_items: int = 0
     completed_items: int = 0
     failed_items: int = 0
     artifacts: Dict[str, Any] = field(default_factory=dict)
     logs: List[str] = field(default_factory=list)
-    validation_status: str = "pending"  # pending | validated | failed
+    validation_status: str = "pending"
     error_message: str = ""
     duration_seconds: float = 0.0
 
@@ -211,18 +198,15 @@ class ExecutionState:
         return asdict(self)
 
     def get_progress(self) -> float:
-        """Return 0-100 progress"""
         if self.total_items == 0:
             return 0.0
         return (self.completed_items / self.total_items) * 100
 
     def add_log(self, message: str) -> None:
-        """Add timestamped log"""
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.logs.append(f"[{ts}] {message}")
 
     def mark_item_completed(self, agent_id: str, item_id: str, files: List[str]) -> None:
-        """Mark PRD item as completed by agent"""
         if agent_id not in self.artifacts:
             self.artifacts[agent_id] = []
         self.artifacts[agent_id].append({
@@ -233,16 +217,15 @@ class ExecutionState:
         self.completed_items += 1
 
     def mark_item_failed(self, agent_id: str, item_id: str, error: str) -> None:
-        """Mark PRD item as failed"""
         self.failed_items += 1
         self.add_log(f"❌ Agent {agent_id} failed on item {item_id}: {error}")
 
 
 @dataclass
 class ValidationResult:
-    """Result from code validation (PR-003)"""
+    """Result from code validation"""
     execution_id: str
-    status: str  # success | partial | failed
+    status: str
     files_validated: int = 0
     files_passed: int = 0
     files_failed: int = 0
@@ -260,7 +243,7 @@ class ValidationResult:
 
 
 # ============================================================================
-# WORKSPACE MANAGER (unchanged - metrics_config creation already there)
+# WORKSPACE MANAGER
 # ============================================================================
 
 class WorkspaceManager:
@@ -273,10 +256,8 @@ class WorkspaceManager:
             agent_coordinator: Optional[Any] = None,
             execution_engine: Optional[Any] = None
     ):
-        """Initialize orchestrator"""
         import os
 
-        # ✅ CRITICAL FIX: Resolve to absolute path
         if workspace_dir:
             self.workspace = workspace_dir.resolve()
         else:
@@ -287,7 +268,6 @@ class WorkspaceManager:
         self.current_project_dir: Optional[Path] = None
         self.execution_log: List[str] = []
 
-        # ✅ CRITICAL FIX: Initialize deepseek_client if not provided
         if deepseek_client is None:
             try:
                 from deepseek_client import DeepseekClient
@@ -313,11 +293,9 @@ class WorkspaceManager:
         logger.info(f"   Workspace: {self.workspace}")
 
     def create_project_workspace(self, project_id: str, config: ProjectConfig) -> Path:
-        """Create project workspace structure (supports ML projects)"""
         project_dir = self.workspace / "projects" / project_id
         project_dir.mkdir(parents=True, exist_ok=True)
 
-        # Base directories
         directories = [
             project_dir / "workspace" / "config",
             project_dir / "workspace" / "input",
@@ -326,10 +304,9 @@ class WorkspaceManager:
             project_dir / "workspace" / "output" / "logs",
             project_dir / "workspace" / "output" / "validation",
             project_dir / "src",
-            project_dir / "logs",  # NEW: For JSONL traces
+            project_dir / "logs",
         ]
 
-        # ML-specific directories
         if config.project_type == ProjectType.ML_COMPETITION or config.metadata.get("project_type") == "ml_competition":
             directories.extend([
                 project_dir / "data" / "raw",
@@ -348,42 +325,25 @@ class WorkspaceManager:
 
     @staticmethod
     def create_config_files(project_dir: Path, config: ProjectConfig) -> None:
-        """Create initial config files (supports ML projects + KPI config)"""
-        # Save config.json
         config_file = project_dir / "config.json"
         with open(config_file, 'w', encoding='utf-8') as f:
             json.dump(config.to_dict(), f, indent=2)
 
-        # Create README.md
         if config.project_type == ProjectType.ML_COMPETITION or config.metadata.get("project_type") == "ml_competition":
             readme_content = WorkspaceManager._create_ml_readme(config)
         else:
             readme_content = WorkspaceManager._create_api_readme(config, project_dir)
 
         (project_dir / "README.md").write_text(readme_content)
-
-        # Create requirements.txt
         WorkspaceManager._create_requirements(project_dir, config)
-
-        # NEW: Auto-generate per-project metrics_config.json for ALL projects
         WorkspaceManager._create_default_metrics_config(project_dir, config)
-
         logger.info(f"📝 Created config files")
 
     @staticmethod
     def _create_default_metrics_config(project_dir: Path, config: ProjectConfig) -> None:
-        """Create a default metrics_config.json for any project.
-
-        For ML competition projects, use project metadata or ml_config.eval_metric.
-        For non-ML projects, default to a tests-based KPI so the loop is result-oriented
-        even before you customize metrics per project.
-        """
         meta = config.metadata or {}
         project_type_str = str(meta.get("project_type", config.project_type))
 
-        # ------------------------------------------------------------------
-        # ML COMPETITION PROJECTS: metric from eval_metric / metadata
-        # ------------------------------------------------------------------
         if "ml_competition" in project_type_str:
             metric_name = meta.get('eval_metric')
             if not metric_name and config.ml_config:
@@ -391,7 +351,6 @@ class WorkspaceManager:
             if not metric_name:
                 metric_name = "score"
 
-            # Basic patterns for common metrics; refined later per-project if needed
             patterns = {
                 "R²": r"R2(?: Score)?: (?P<value>[-+]?\d*\.\d+)",
                 "RMSE": r"RMSE: (?P<value>[-+]?\d*\.\d+)",
@@ -403,35 +362,24 @@ class WorkspaceManager:
                 "score": r"Score: (?P<value>[-+]?\d*\.\d+)",
             }
 
-            # Map some friendly names to internal keys
             name_key = metric_name
             if metric_name.lower().startswith("weighted") and "pearson" in metric_name.lower():
                 name_key = "weighted_pearson"
 
             pattern = patterns.get(name_key, patterns["score"])
-
-            # Conservative default target; user can edit per project
             default_target = float(meta.get('metric_target', 0.0))
 
-        # ------------------------------------------------------------------
-        # NON-ML PROJECTS: default to tests-based KPI
-        # ------------------------------------------------------------------
         else:
             metric_name = meta.get('eval_metric', 'tests_passed_ratio')
-
             patterns = {
-                # Expect your verification command to print e.g. "TESTS_OK: 1.0" when all tests pass
                 "tests_passed_ratio": r"TESTS_OK:\s*(?P<value>[-+]?\d*\.?\d+)",
-                # Or "TESTS_PASSED: 123"
                 "tests_passed": r"TESTS_PASSED:\s*(?P<value>\d+)",
-                # Or "COVERAGE: 87.5" for coverage percentage
                 "coverage": r"COVERAGE:\s*(?P<value>[-+]?\d*\.?\d+)",
             }
 
             name_key = metric_name if metric_name in patterns else "tests_passed_ratio"
             pattern = patterns[name_key]
 
-            # For generic projects, default target is "all tests pass" (ratio 1.0)
             if name_key == "coverage":
                 default_target = float(meta.get('metric_target', 80.0))
             else:
@@ -447,13 +395,9 @@ class WorkspaceManager:
         if not metrics_file.exists():
             metrics_file.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
             logger.info("📊 Created default metrics_config.json: %s", metrics_file)
-        else:
-            logger.info("📊 metrics_config.json already exists, not overwriting: %s", metrics_file)
 
     @staticmethod
     def _create_ml_readme(config: ProjectConfig) -> str:
-        """Create README for ML competition project"""
-        # Check both ml_config and metadata for ML info
         ml = config.ml_config
         meta = config.metadata
 
@@ -467,179 +411,38 @@ class WorkspaceManager:
         learning_rate = ml.learning_rate if ml else meta.get('learning_rate', 0.001)
         eval_metric = ml.eval_metric if ml else meta.get('eval_metric', 'R²')
 
-        return f"""# {config.name}
-
-## ML Competition Project
-
-- **Competition**: {comp_source}
-- **URL**: {comp_url}
-- **Problem Type**: {problem_type}
-- **Framework**: {ml_framework}
-- **Model**: {model_type}
-- **Created**: {config.timestamp}
-
-## Dataset
-
-- **Sequence Length**: {ml.sequence_length if ml else 'N/A'}
-- **Features**: {ml.num_features if ml else 'N/A'}
-- **Target**: {ml.target_variable if ml else 'N/A'}
-- **Files**: {', '.join(meta.get('dataset_files', []))}
-
-## Training Config
-
-- **Batch Size**: {batch_size}
-- **Epochs**: {epochs}
-- **Learning Rate**: {learning_rate}
-- **Optimizer**: {ml.optimizer if ml else 'Adam'}
-- **Loss**: {ml.loss_function if ml else 'MSE'}
-
-## Evaluation
-
-- **Metric**: {eval_metric}
-- **Validation Split**: {ml.validation_split if ml else 0.2}
-- **Cross-Validation**: {ml.cross_validation if ml else 'time_series_split'}
-
-## Quick Start
-
-```bash
-# Setup environment
-python -m venv venv
-source venv/bin/activate  # Windows: venv\\Scripts\\activate
-pip install -r requirements.txt
-
-# Place dataset files in data/raw/
-
-# Train model
-python src/train.py
-
-# Generate predictions
-python src/predict.py
-
-# Create submission
-python scripts/make_submission.py .
-```
-
-## Project Structure
-
-```
-data/
-├── raw/              # Original competition data
-└── processed/        # Preprocessed data
-models/
-├── checkpoints/      # Training checkpoints
-└── final/           # Final trained models
-notebooks/           # Jupyter notebooks for EDA
-submissions/         # Submission files
-src/
-├── data_loader.py   # Data loading and preprocessing
-├── model.py         # Model architecture
-├── train.py         # Training script
-├── predict.py       # Inference script
-└── submit.py        # Submission generator
-```
-
-## Notes
-
-- **GPU**: {'Required' if ml and ml.gpu_required else 'Optional'}
-- **Est. Training Time**: {ml.estimated_training_hours if ml else 24} hours
-- **Submission Format**: {ml.submission_format if ml else 'CSV'}
-- **Deadline**: {ml.submission_deadline if ml else 'TBD'}
-
-Generated by RALPH - Multi-Agent ML Development System
-"""
+        return f"""# {config.name}\n\n## ML Competition Project\n\n- **Competition**: {comp_source}\n- **URL**: {comp_url}\n- **Problem Type**: {problem_type}\n- **Framework**: {ml_framework}\n- **Model**: {model_type}\n- **Created**: {config.timestamp}\n\n## Dataset\n\n- **Sequence Length**: {ml.sequence_length if ml else 'N/A'}\n- **Features**: {ml.num_features if ml else 'N/A'}\n- **Target**: {ml.target_variable if ml else 'N/A'}\n- **Files**: {', '.join(meta.get('dataset_files', []))}\n\n## Training Config\n\n- **Batch Size**: {batch_size}\n- **Epochs**: {epochs}\n- **Learning Rate**: {learning_rate}\n- **Optimizer**: {ml.optimizer if ml else 'Adam'}\n- **Loss**: {ml.loss_function if ml else 'MSE'}\n\n## Evaluation\n\n- **Metric**: {eval_metric}\n- **Validation Split**: {ml.validation_split if ml else 0.2}\n- **Cross-Validation**: {ml.cross_validation if ml else 'time_series_split'}"""
 
     @staticmethod
     def _create_api_readme(config: ProjectConfig, project_dir: Path) -> str:
-        """Create README for API development project"""
-        return f"""# {config.name}
-
-## Project Information
-
-- **Domain**: {config.domain}
-- **Architecture**: {config.architecture}
-- **Framework**: {config.framework}
-- **Language**: {config.language}
-- **Database**: {config.database}
-- **Created**: {config.timestamp}
-
-## Quick Start
-
-cd {project_dir.name}
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-## Project Structure
-
-workspace/
-├── config/           # Configuration files
-├── input/            # Input data
-└── output/           # Generated output
-    ├── generated_code/   # AI-generated code
-    ├── architectures/    # Architecture blueprints
-    ├── logs/             # Execution logs
-    └── validation/       # Validation reports
-src/                 # Your source code
-
-## Architecture
-
-Generated by RALPH - Multi-Agent Development System
-"""
+        return f"""# {config.name}\n\n## Project Information\n\n- **Domain**: {config.domain}\n- **Architecture**: {config.architecture}\n- **Framework**: {config.framework}\n- **Language**: {config.language}\n- **Database**: {config.database}\n- **Created**: {config.timestamp}"""
 
     @staticmethod
     def _create_requirements(project_dir: Path, config: ProjectConfig) -> None:
-        """Create requirements.txt based on project type"""
-        base_deps = [
-            "python-dotenv>=0.19.0",
-            "pydantic>=1.8.0",
-            "loguru>=0.5.3",
-        ]
+        base_deps = ["python-dotenv>=0.19.0", "pydantic>=1.8.0", "loguru>=0.5.3"]
 
         if config.project_type == ProjectType.ML_COMPETITION or config.metadata.get("project_type") == "ml_competition":
-            # ML dependencies
             ml = config.ml_config
             meta = config.metadata
             ml_framework = ml.ml_framework if ml else meta.get('ml_framework', 'PyTorch')
 
-            ml_deps = [
-                "numpy>=1.21.0",
-                "pandas>=1.3.0",
-                "scikit-learn>=1.0.0",
-                "matplotlib>=3.4.0",
-                "seaborn>=0.11.0",
-                "jupyter>=1.0.0",
-                "tqdm>=4.62.0",
-            ]
+            ml_deps = ["numpy>=1.21.0", "pandas>=1.3.0", "scikit-learn>=1.0.0", "matplotlib>=3.4.0", "seaborn>=0.11.0",
+                       "jupyter>=1.0.0", "tqdm>=4.62.0"]
 
-            # Framework-specific
             if ml_framework == "PyTorch":
-                ml_deps.extend([
-                    "torch>=1.10.0",
-                    "torchvision>=0.11.0",
-                ])
+                ml_deps.extend(["torch>=1.10.0", "torchvision>=0.11.0"])
             elif ml_framework == "TensorFlow":
-                ml_deps.extend([
-                    "tensorflow>=2.7.0",
-                ])
+                ml_deps.extend(["tensorflow>=2.7.0"])
             elif ml_framework == "JAX":
-                ml_deps.extend([
-                    "jax>=0.3.0",
-                    "jaxlib>=0.3.0",
-                ])
+                ml_deps.extend(["jax>=0.3.0", "jaxlib>=0.3.0"])
 
-            all_deps = base_deps + ml_deps + [
-                "pytest>=6.2.0",
-                "black>=21.0",
-                "flake8>=3.9.0",
-            ]
+            all_deps = base_deps + ml_deps + ["pytest>=6.2.0", "black>=21.0", "flake8>=3.9.0"]
         else:
-            # API dependencies
             framework_deps = {
                 "FastAPI": ["fastapi>=0.68.0", "uvicorn>=0.15.0"],
                 "Django": ["django>=3.2", "djangorestframework>=3.12.0"],
                 "Flask": ["flask>=2.0.0"],
             }
-
             db_deps = {
                 "PostgreSQL": ["psycopg2-binary>=2.9.0", "sqlalchemy>=1.4.0"],
                 "MongoDB": ["pymongo>=3.12.0"],
@@ -647,27 +450,19 @@ Generated by RALPH - Multi-Agent Development System
                 "Redis": ["redis>=3.5.3"],
             }
 
-            all_deps = (
-                    base_deps +
-                    framework_deps.get(config.framework, []) +
-                    db_deps.get(config.database, []) +
-                    ["pytest>=6.2.0", "black>=21.0", "flake8>=3.9.0", "pylint>=2.0.0", "mypy>=0.900", "aiohttp>=3.8.0"]
-            )
+            all_deps = (base_deps + framework_deps.get(config.framework, []) + db_deps.get(config.database, []) + [
+                "pytest>=6.2.0", "black>=21.0", "flake8>=3.9.0", "pylint>=2.0.0", "mypy>=0.900", "aiohttp>=3.8.0"])
 
         req_file = project_dir / "requirements.txt"
         req_file.write_text("\n".join(sorted(set(all_deps))))
 
 
 # ============================================================================
-# ORCHESTRATOR - MAIN ENGINE (FULL INTEGRATION)
+# ORCHESTRATOR - MAIN ENGINE
 # ============================================================================
 
 class RalphOrchestrator:
-    """
-    Main orchestrator engine with full BE-002/005/007/008 integration.
-
-    Manages project lifecycle and coordinates all components.
-    """
+    """Main orchestrator engine"""
 
     def __init__(
             self,
@@ -676,8 +471,6 @@ class RalphOrchestrator:
             agent_coordinator: Optional[Any] = None,
             execution_engine: Optional[Any] = None
     ):
-        """Initialize orchestrator"""
-        # ✅ CRITICAL FIX: Resolve to absolute path for consistent operations
         if workspace_dir:
             self.workspace = workspace_dir.resolve()
         else:
@@ -694,44 +487,24 @@ class RalphOrchestrator:
         self.executions: Dict[str, ExecutionState] = {}
         self.validations: Dict[str, ValidationResult] = {}
 
-        # BE-002: Schema integrator
         self.schema_integrator = SchemaIntegrator()
-
-        # PR-Agents: per-project agent profile store (initialized lazily)
         self.agent_profile_store: Optional[AgentProfileStore] = None
 
         logger.info("🚀 RALPH Orchestrator initialized")
         logger.info(f"   Workspace: {self.workspace}")
 
     def create_project(self, config: ProjectConfig) -> Dict[str, Any]:
-        """
-        Create new project (API or ML).
-
-        Called by UI after user fills in project details.
-        """
         try:
             self.current_config = config
-
-            # Generate project ID
             project_id = self._generate_project_id(config.name)
-
-            # Create workspace
-            project_dir = self.workspace_manager.create_project_workspace(
-                project_id, config
-            )
-
+            project_dir = self.workspace_manager.create_project_workspace(project_id, config)
             self.current_project_dir = project_dir
 
-            # Create config + README + requirements + metrics_config
             WorkspaceManager.create_config_files(project_dir, config)
-
-            # Initialize empty AgentProfileStore for the new project
             self.agent_profile_store = AgentProfileStore.load_for_project(project_dir)
 
-            # Log event
             project_type_display = config.metadata.get('project_type', config.project_type).upper().replace("_", " ")
             self.execution_log.append(f"✅ {project_type_display} project created: {project_id}")
-
             logger.info(f"✅ Project created successfully: {project_id}")
 
             return {
@@ -744,28 +517,13 @@ class RalphOrchestrator:
                 "config": config.to_dict(),
                 "created_at": datetime.now().isoformat(),
             }
-
         except Exception as e:
             error_msg = f"Failed to create project: {str(e)}"
             self.execution_log.append(f"❌ {error_msg}")
             logger.error(error_msg, exc_info=True)
-            return {
-                "status": "error",
-                "error": error_msg,
-            }
+            return {"status": "error", "error": error_msg}
 
-    def refine_task(
-            self,
-            project_id: str,
-            raw_task: str,
-            dataset_path: Optional[Path] = None
-    ) -> Dict[str, Any]:
-        """Task clarification + PRD generation (ENHANCED with BE-002 schema detection).
-
-        NEW (BE-002): Auto-detect dataset schema if dataset_path provided.
-        NEW (PRD-01): Ingest local project context before calling DeepSeek.
-        NEW (BE-005): Pass schemas to PRD generator for schema-aware stories.
-        """
+    def refine_task(self, project_id: str, raw_task: str, dataset_path: Optional[Path] = None) -> Dict[str, Any]:
         try:
             from task_clarifier import TaskClarifier
             from prd_generator import PRDGenerator
@@ -774,103 +532,53 @@ class RalphOrchestrator:
             if not config:
                 return {"status": "error", "error": "No project created"}
 
-            # =====================================================================
-            # BE-002: SCHEMA DETECTION
-            # =====================================================================
             if dataset_path or (self.current_project_dir / "data" / "raw").exists():
-                self._log(
-                    "📊 BE-002: Running dataset schema detection..."
-                )
+                self._log("📊 BE-002: Running dataset schema detection...")
                 schema_result = self.schema_integrator.inspect_and_save(
-                    project_dir=self.current_project_dir,
-                    dataset_path=dataset_path
+                    project_dir=self.current_project_dir, dataset_path=dataset_path
                 )
-
                 if schema_result['status'] == 'success':
-                    # Attach to metadata
-                    config.metadata = self.schema_integrator.attach_to_metadata(
-                        config.metadata,
-                        schema_result['schemas']
-                    )
-                    self._log(
-                        f"   ✅ Schema detected: {len(schema_result['schemas'])} dataset(s)"
-                    )
-                    self._log(
-                        f"      Features: {config.metadata.get('num_features')}, "
-                        f"Sequence length: {config.metadata.get('sequence_length')}"
-                    )
+                    config.metadata = self.schema_integrator.attach_to_metadata(config.metadata,
+                                                                                schema_result['schemas'])
+                    self._log(f"   ✅ Schema detected: {len(schema_result['schemas'])} dataset(s)")
                 else:
                     self._log("   ⚠️  No datasets found for schema detection")
 
-            # =====================================================================
-            # PRD-01: CONTEXT INGESTION
-            # =====================================================================
             context_summary_text = ""
             if self.current_project_dir and self.current_project_dir.exists():
                 ctx = ingest_project_context(self.current_project_dir)
                 context_summary = ctx.to_dict()
                 context_summary_text = ctx.to_text_summary()
-
-                # Attach to metadata (non-destructive merge)
                 meta = dict(config.metadata or {})
                 meta.setdefault("ingested_context", context_summary)
                 config.metadata = meta
 
-                self._log(
-                    "📚 Project context attached to metadata (docs=%d, datasets=%d, code=%d, models=%d)",
-                    len(context_summary.get("docs", [])),
-                    len(context_summary.get("datasets", [])),
-                    len(context_summary.get("code", [])),
-                    len(context_summary.get("models", [])),
-                )
-
-            # =====================================================================
-            # TASK CLARIFICATION
-            # =====================================================================
             self._log("🔍 Task Clarification Phase")
-            self._log(f"   Input: {raw_task[:100]}...")
-
             clarifier = TaskClarifier(self.deepseek_client)
 
-            # Pass project context into the clarifier so Deepseek can reason
-            # about real files in addition to high-level description.
             enriched_raw_task = raw_task
             if context_summary_text:
-                enriched_raw_task = (
-                    f"{raw_task}\n\n"  # original prompt first
-                    "---\nPROJECT FILE CONTEXT (from local workspace):\n"  # separator
-                    f"{context_summary_text}"
-                )
+                enriched_raw_task = f"{raw_task}\n\n---\nPROJECT FILE CONTEXT (from local workspace):\n{context_summary_text}"
 
-            brief = asyncio.run(
-                clarifier.clarify(
-                    raw_task=enriched_raw_task,
-                    domain=config.domain,
-                    framework=config.framework,
-                    database=config.database,
-                )
-            )
+            brief = asyncio.run(clarifier.clarify(
+                raw_task=enriched_raw_task, domain=config.domain,
+                framework=config.framework, database=config.database,
+            ))
 
             if brief.get("status") != "success":
                 return brief
 
-            # Attach project metadata and id into the brief for downstream PRD generation
             brief["project_id"] = project_id
             brief["project_metadata"] = config.metadata
 
             self._log("✅ Task clarified")
-            self._log(f"   {brief['clarified_task'][:100]}...")
-
-            # =====================================================================
-            # BE-005: SCHEMA-AWARE PRD GENERATION
-            # =====================================================================
             self._log("📝 PRD Generation Phase (BE-005: Dynamic AI-aware)")
+
             gen = PRDGenerator(self.deepseek_client)
             prd = asyncio.run(gen.generate(
-                technical_brief=brief,
-                domain=config.domain,
-                project_metadata=config.metadata,
+                technical_brief=brief, domain=config.domain, project_metadata=config.metadata,
             ))
+
             self._log(f"✅ PRD generated: {prd['total_items']} items")
 
             prd_file = self.current_project_dir / "prd.json"
@@ -879,38 +587,28 @@ class RalphOrchestrator:
 
             self._log(f"💾 Saved PRD: {prd_file}")
 
-            return {
-                "status": "success",
-                "brief": brief,
-                "prd": prd,
-                "prd_file": str(prd_file),
-            }
+            return {"status": "success", "brief": brief, "prd": prd, "prd_file": str(prd_file)}
 
         except Exception as e:
             self._log(f"❌ Task refinement failed: {e}")
             logger.error(f"Task refinement error: {e}", exc_info=True)
             return {"status": "error", "error": str(e)}
 
+    # 🆕 PHASE 2: INJECTED EXECUTION MODE
     async def execute_prd_loop(
             self,
             prd: Dict[str, Any],
             num_agents: int = 4,
+            execution_mode: str = "parallel",  # 🆕 State Routing Flag
             log_callback: Optional[Callable] = None,
             progress_callback: Optional[Callable] = None,
     ) -> Dict[str, Any]:
-        """Execute PRD items in parallel (ENHANCED with BE-008 trace logging)
-
-        NOTE: Accepts PRD/backlog in multiple shapes (wizard PRD backlog, classic
-        PRD with user_stories) and normalizes it into canonical Ralph
-        format saved to prd.json for the ExecutionEngine.
-        """
-        logger.info("🔍 [DEBUG] execute_prd_loop() CALLED")
+        """Execute PRD items (Supports both Parallel Swarm and Model Council modes)."""
+        logger.info(f"🔍 [DEBUG] execute_prd_loop() CALLED | Mode: {execution_mode}")
 
         try:
-            # Normalize incoming PRD/backlog into canonical Ralph format
             canonical_prd = self._normalize_prd_for_engine(prd)
 
-            # Persist canonical PRD to prd.json so ExecutionEngine can consume it
             if self.current_project_dir:
                 prd_file = self.current_project_dir / "prd.json"
                 try:
@@ -920,7 +618,6 @@ class RalphOrchestrator:
                 except Exception as e:
                     logger.warning("⚠️ Failed to write canonical prd.json: %s", e)
 
-                # Ensure agent profile store exists for this project
                 if self.agent_profile_store is None:
                     self.agent_profile_store = AgentProfileStore.load_for_project(self.current_project_dir)
 
@@ -932,55 +629,43 @@ class RalphOrchestrator:
                 project_id=self.current_config.name if self.current_config else "unknown",
                 start_time=datetime.now().isoformat(),
                 num_agents=num_agents,
-                total_items=canonical_prd.get(
-                    "total_items",
-                    len(canonical_prd.get("user_stories", [])),
-                ),
+                total_items=canonical_prd.get("total_items", len(canonical_prd.get("user_stories", []))),
             )
             self.executions[execution_id] = exec_state
-            logger.info("🔍 [DEBUG] ExecutionState created")
 
-            exec_state.add_log("🚀 Starting parallel execution")
-            if log_callback:
-                await log_callback("🚀 Starting parallel execution")
-
-            # =====================================================================
-            # BE-008: TRACE LOGGER INITIALIZATION
-            # =====================================================================
             from trace_logger import TraceLogger
-
             trace_file = self.current_project_dir / "logs" / f"execution_{execution_id}.jsonl"
             trace_logger = TraceLogger(trace_file, execution_id)
-
             logger.info(f"📝 BE-008: Trace logging to {trace_file}")
 
-            logger.info("🔍 [DEBUG] Partitioning PRD items...")
-            partitioned = self._partition_prd_items(canonical_prd, num_agents)
             total_user_stories = len(canonical_prd.get('user_stories', []))
-            logger.info(f"🔍 [DEBUG] Partitioned {total_user_stories} stories")
 
-            exec_state.add_log(f"📊 Partitioned {total_user_stories} user stories across {num_agents} agents")
+            # 🆕 PHASE 2: STATE ROUTING (Swarm vs Council)
+            if execution_mode == "council":
+                logger.info("🔍 [DEBUG] Model Council Mode: Bypassing standard horizontal partitioning.")
+                # Give ALL stories to the council queue as a single sequential block
+                partitioned = {"council_queue": canonical_prd.get('user_stories', [])}
+                msg = f"🏛️ Initiating Model Council: {num_agents} agents collaborating sequentially on {total_user_stories} stories"
+                exec_state.add_log(msg)
+                if log_callback:
+                    await log_callback(msg)
+            else:
+                logger.info("🔍 [DEBUG] Partitioning PRD items for Parallel Swarm Mode...")
+                partitioned = self._partition_prd_items(canonical_prd, num_agents)
+                msg = f"📊 Partitioned {total_user_stories} user stories across {num_agents} parallel agents"
+                exec_state.add_log(msg)
+                if log_callback:
+                    await log_callback(msg)
 
-            if log_callback:
-                await log_callback(f"📊 Partitioned {total_user_stories} user stories across {num_agents} agents")
-
-            logger.info("🔍 [DEBUG] Creating orchestrator prompt...")
             orchestrator_prompt = await self._generate_dynamic_orchestrator_prompt(
                 prd=canonical_prd,
                 config=self.current_config,
                 domain=self.current_config.domain if self.current_config else "web_app"
             )
-            logger.info(f"🔍 [DEBUG] Orchestrator prompt created, length: {len(orchestrator_prompt)}")
 
             if not self.execution_engine:
-                logger.info("🔍 [DEBUG] Creating ExecutionEngine for current project...")
                 if not self.current_project_dir:
-                    logger.error("❌ No project directory set!")
-                    return {
-                        "status": "failed",
-                        "error": "No project loaded. Create a project first.",
-                        "execution_id": execution_id
-                    }
+                    return {"status": "failed", "error": "No project loaded.", "execution_id": execution_id}
 
                 from execution_engine import ExecutionEngine
                 self.execution_engine = ExecutionEngine(
@@ -988,43 +673,31 @@ class RalphOrchestrator:
                     deepseek_client=self.deepseek_client,
                     agent_coordinator=self.agent_coordinator,
                 )
-                # BE-008: Attach trace logger to execution engine
                 self.execution_engine.trace_logger = trace_logger
 
-                logger.info("✅ ExecutionEngine created for project: %s", self.current_project_dir)
-
-            logger.info(f"🔍 [DEBUG] ExecutionEngine exists: {type(self.execution_engine)}")
-
-            exec_state.add_log("⚙️ Spawning parallel agents...")
+            exec_state.add_log(f"⚙️ Spawning agents in {execution_mode.upper()} mode...")
             if log_callback:
-                await log_callback("⚙️ Spawning parallel agents...")
-
-            # ✅ FIX: Make callbacks async-compatible
-            logger.info("🔍 [DEBUG] Creating async callback wrappers...")
+                await log_callback(f"⚙️ Spawning agents in {execution_mode.upper()} mode...")
 
             async def async_progress_callback(p):
-                logger.info(f"🔍 [DEBUG] async_progress_callback called with {p}")
                 await self._handle_progress(exec_state, p, progress_callback)
 
             async def async_log_callback(msg):
-                logger.info(f"🔍 [DEBUG] async_log_callback called: {msg[:50]}...")
                 await self._handle_log(exec_state, msg, log_callback)
 
-            logger.info("🔍 [DEBUG] CALLING execution_engine.execute()...")
+            logger.info(f"🔍 [DEBUG] CALLING execution_engine.execute() with mode={execution_mode}...")
 
+            # 🆕 Pass execution_mode to Phase 3 (Execution Engine)
             execution_results = await self.execution_engine.execute(
                 execution_id=execution_id,
                 orchestrator_prompt=orchestrator_prompt,
                 prd_partitions=partitioned,
                 num_agents=num_agents,
+                execution_mode=execution_mode,  # INJECTED
                 progress_callback=async_progress_callback,
                 log_callback=async_log_callback,
             )
 
-            logger.info("🔍 [DEBUG] execution_engine.execute() RETURNED")
-            logger.info(f"🔍 [DEBUG] Result status: {execution_results.get('status')}")
-
-            # BE-008: Log execution end
             trace_logger.execution_end(
                 status=execution_results.get('status', 'unknown'),
                 total_duration=(datetime.now() - datetime.fromisoformat(exec_state.start_time)).total_seconds()
@@ -1041,34 +714,14 @@ class RalphOrchestrator:
 
         except Exception as e:
             logger.error(f"❌ Execution error: {e}", exc_info=True)
-            return {
-                "status": "error",
-                "error": str(e),
-                "execution_id": execution_id if 'execution_id' in locals() else "unknown"
-            }
+            return {"status": "error", "error": str(e),
+                    "execution_id": execution_id if 'execution_id' in locals() else "unknown"}
 
     def create_submission(self, project_id: str, output_name: Optional[str] = None) -> Dict[str, Any]:
-        """BE-007: Create competition submission package.
-
-        Validates and packages solution.py + model.onnx into submission.zip.
-
-        Args:
-            project_id: Project identifier
-            output_name: Optional custom zip name
-
-        Returns:
-            Dict with status and zip_path
-        """
         try:
             if not self.current_project_dir:
-                return {
-                    "status": "error",
-                    "error": "No active project. Create a project first."
-                }
+                return {"status": "error", "error": "No active project."}
 
-            self._log("📦 BE-007: Creating submission package...")
-
-            # Import packager
             import sys
             sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
             from make_submission import SubmissionPackager
@@ -1077,41 +730,26 @@ class RalphOrchestrator:
             zip_path = packager.create_submission(output_name)
 
             self._log(f"✅ Submission created: {zip_path}")
-
-            return {
-                "status": "success",
-                "zip_path": zip_path,
-                "project_id": project_id,
-            }
+            return {"status": "success", "zip_path": zip_path, "project_id": project_id}
 
         except Exception as e:
-            error_msg = f"Failed to create submission: {str(e)}"
-            self._log(f"❌ {error_msg}")
-            logger.error(error_msg, exc_info=True)
-            return {
-                "status": "error",
-                "error": error_msg,
-            }
+            logger.error(str(e), exc_info=True)
+            return {"status": "error", "error": str(e)}
 
     def list_projects(self) -> List[Dict[str, Any]]:
-        """List all projects in workspace"""
         projects_dir = self.workspace / "projects"
         if not projects_dir.exists():
             return []
 
         projects = []
         for project_path in projects_dir.iterdir():
-            if not project_path.is_dir():
-                continue
-
+            if not project_path.is_dir(): continue
             config_file = project_path / "config.json"
-            if not config_file.exists():
-                continue
+            if not config_file.exists(): continue
 
             try:
                 with open(config_file, 'r', encoding='utf-8') as f:
                     config = json.load(f)
-
                 projects.append({
                     "name": config.get("name", project_path.name),
                     "project_id": project_path.name,
@@ -1128,11 +766,9 @@ class RalphOrchestrator:
         return sorted(projects, key=lambda p: p.get("created_at", ""), reverse=True)
 
     def get_execution_log(self) -> List[str]:
-        """Get execution log"""
         return self.execution_log
 
     def clear_execution_log(self) -> None:
-        """Clear execution log"""
         self.execution_log.clear()
 
     # =========================================================================
@@ -1140,70 +776,47 @@ class RalphOrchestrator:
     # =========================================================================
 
     def _generate_project_id(self, name: str) -> str:
-        """Generate unique project ID from name"""
         import re
         from datetime import datetime
-
-        # Sanitize name
         safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', name.lower())[:30]
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         return f"{safe_name}_{timestamp}"
 
     def _normalize_prd_for_engine(self, prd: Dict[str, Any]) -> Dict[str, Any]:
-        """Normalize various PRD/backlog shapes into canonical Ralph format.
-
-        Supports:
-        - Classic PRD with `user_stories` list
-        - Wizard-style PRD backlog with `backlog` list
-        - Generic lists under `items`
-        """
         if not isinstance(prd, dict):
             return {"user_stories": [], "total_items": 0}
 
         stories: List[Dict[str, Any]] = []
 
-        # Already canonical
         if "user_stories" in prd and isinstance(prd["user_stories"], list):
             stories = prd["user_stories"]
-
-        # Wizard Phase 2B backlog: { "backlog": [ {item_id, title, acceptance_criteria, ...}, ... ] }
         elif "backlog" in prd and isinstance(prd["backlog"], list):
             for idx, item in enumerate(prd["backlog"], 1):
-                if not isinstance(item, dict):
-                    continue
-                story_id = item.get("item_id") or f"ITEM-{idx:03d}"
-                stories.append(
-                    {
-                        "id": story_id,
-                        "title": item.get("title", ""),
-                        "description": item.get("why", "") or item.get("description", ""),
-                        "acceptance_criteria": item.get("acceptance_criteria", []),
-                        "verification": item.get("verification_command", ""),
-                        "verification_type": item.get("verification_type", "automated"),
-                        "files_touched": item.get("files_touched", []),
-                        "priority": item.get("priority", "medium"),
-                        "status": item.get("status", "todo"),
-                    }
-                )
-
-        # Generic items list
+                if not isinstance(item, dict): continue
+                stories.append({
+                    "id": item.get("item_id") or f"ITEM-{idx:03d}",
+                    "title": item.get("title", ""),
+                    "description": item.get("why", "") or item.get("description", ""),
+                    "acceptance_criteria": item.get("acceptance_criteria", []),
+                    "verification": item.get("verification_command", ""),
+                    "verification_type": item.get("verification_type", "automated"),
+                    "files_touched": item.get("files_touched", []),
+                    "priority": item.get("priority", "medium"),
+                    "status": item.get("status", "todo"),
+                })
         elif "items" in prd and isinstance(prd["items"], list):
             for idx, item in enumerate(prd["items"], 1):
-                if not isinstance(item, dict):
-                    continue
-                story_id = item.get("id") or f"ITEM-{idx:03d}"
-                stories.append(
-                    {
-                        "id": story_id,
-                        "title": item.get("title", ""),
-                        "description": item.get("description", ""),
-                        "acceptance_criteria": item.get("acceptance_criteria", []),
-                        "verification": item.get("verification", ""),
-                        "files_touched": item.get("files_touched", []),
-                        "priority": item.get("priority", "medium"),
-                        "status": item.get("status", "todo"),
-                    }
-                )
+                if not isinstance(item, dict): continue
+                stories.append({
+                    "id": item.get("id") or f"ITEM-{idx:03d}",
+                    "title": item.get("title", ""),
+                    "description": item.get("description", ""),
+                    "acceptance_criteria": item.get("acceptance_criteria", []),
+                    "verification": item.get("verification", ""),
+                    "files_touched": item.get("files_touched", []),
+                    "priority": item.get("priority", "medium"),
+                    "status": item.get("status", "todo"),
+                })
 
         canonical = dict(prd)
         canonical["user_stories"] = stories
@@ -1211,7 +824,6 @@ class RalphOrchestrator:
         return canonical
 
     def _partition_prd_items(self, prd: Dict[str, Any], num_agents: int) -> Dict[str, List[Dict[str, Any]]]:
-        """Partition PRD items across agents"""
         stories = prd.get('user_stories', [])
         partition_size = max(1, len(stories) // num_agents) if num_agents > 0 else len(stories)
 
@@ -1225,24 +837,15 @@ class RalphOrchestrator:
         return partitions
 
     async def _generate_dynamic_orchestrator_prompt(self, prd: Dict, config: ProjectConfig, domain: str) -> str:
-        """Generate orchestrator system prompt"""
         return f"""You are a senior software engineer implementing a {domain} project.
 
 Project: {config.name}
 Description: {config.description}
 
 Your task is to implement PRD stories with high quality, production-ready code.
-
-Guidelines:
-1. Write complete, working code with all imports
-2. Add type hints and docstrings
-3. Include error handling and logging
-4. Follow best practices for {config.framework if hasattr(config, 'framework') else 'the stack'}
-5. Ensure code is testable and maintainable
 """
 
     async def _handle_progress(self, exec_state: ExecutionState, progress: float, callback: Optional[Callable]):
-        """Handle progress updates"""
         if callback:
             if asyncio.iscoroutinefunction(callback):
                 await callback(progress)
@@ -1250,7 +853,6 @@ Guidelines:
                 callback(progress)
 
     async def _handle_log(self, exec_state: ExecutionState, message: str, callback: Optional[Callable]):
-        """Handle log messages"""
         exec_state.add_log(message)
         if callback:
             if asyncio.iscoroutinefunction(callback):
@@ -1259,7 +861,6 @@ Guidelines:
                 callback(message)
 
     def _log(self, message: str, *args) -> None:
-        """Internal logging"""
         if args:
             message = message % args
         logger.info(message)
@@ -1271,22 +872,11 @@ Guidelines:
 # ============================================================================
 
 def get_orchestrator(
-    workspace_dir: Optional[Path] = None,
-    deepseek_client: Optional[Any] = None,
-    execution_engine: Optional[Any] = None,
-    agent_coordinator: Optional[Any] = None,
+        workspace_dir: Optional[Path] = None,
+        deepseek_client: Optional[Any] = None,
+        execution_engine: Optional[Any] = None,
+        agent_coordinator: Optional[Any] = None,
 ) -> RalphOrchestrator:
-    """Factory function to create RalphOrchestrator instance.
-    
-    Args:
-        workspace_dir: Optional workspace directory path
-        deepseek_client: Optional DeepSeek client instance
-        execution_engine: Optional execution engine instance
-        agent_coordinator: Optional agent coordinator instance
-    
-    Returns:
-        RalphOrchestrator instance
-    """
     return RalphOrchestrator(
         workspace_dir=workspace_dir,
         deepseek_client=deepseek_client,

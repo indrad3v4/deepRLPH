@@ -13,7 +13,6 @@ Each agent is a small, focused worker in the Ralph loop.
 **Primary KPI**: weighted_pearson
 
 **Recent learnings:**
-- Story ITEM-004 succeeded by agent_1, reward=1.0000, metric=None
 - Story ITEM-005 succeeded by agent_1, reward=1.0000, metric=None
 - Story ITEM-006 succeeded by agent_1, reward=1.0000, metric=None
 - Story ITEM-007 succeeded by agent_1, reward=1.0000, metric=None
@@ -23,6 +22,7 @@ Each agent is a small, focused worker in the Ralph loop.
 - Story ML-001 succeeded by agent_1, reward=1.0000, metric=None
 - Story ML-001 succeeded by agent_1, reward=1.0000, metric=None
 - Story ML-001 succeeded by agent_1, reward=1.0000, metric=None
+- Story DL-007 failed by agent_1, reward=-1.0, error=Verification timed out (600s)
 
 ### Agent 2 (agent_2)
 
@@ -63,3 +63,24 @@ platform da
 **Recent learnings:**
 - Story ML-004 succeeded by agent_4, reward=1.0000, metric=None
 - Story ML-004 failed by agent_4, reward=-1.0000, error=Verification timed out (600s)
+
+### Agent 5 (agent_5)
+
+**Role**: Generalist implementation agent
+**Expertise**: backend, tests, refactoring
+**Typical files**: src/
+**Primary KPI**: weighted_pearson
+
+### Agent 6 (agent_6)
+
+**Role**: Generalist implementation agent
+**Expertise**: backend, tests, refactoring
+**Typical files**: src/
+**Primary KPI**: weighted_pearson
+
+### Agent 7 (agent_7)
+
+**Role**: Generalist implementation agent
+**Expertise**: backend, tests, refactoring
+**Typical files**: src/
+**Primary KPI**: weighted_pearson

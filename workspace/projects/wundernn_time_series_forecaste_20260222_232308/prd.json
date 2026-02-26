@@ -1,83 +1,139 @@
 {
-  "task": "Refactor the PyTorch training system (`src/train.py` and related configuration) to automatically default to the most advanced available model (currently T-KAN) while maintaining full backward compatibility for explicitly specified legacy models (DeepLOB). This involves eliminating hardcoded model references, implementing a dynamic model discovery and registration system, and ensuring all logging and configuration are model-agnostic.",
+  "task": "**\nRefactor the existing PyTorch data loader (`src/data/loader.py`) to process 10.7 million rows of order book data into normalized, overlapping sequences for a T-KAN model, using a pure vectorized and memory-mapped pipeline. The solution must eliminate Out-Of-Memory (OOM) errors under a 16GB RAM constraint and drastically improve throughput while preserving the exact mathematical integrity of the Order Flow Imbalance (OFI) feature and the final tensor shape of `(batch_size, 1000, 32)`.",
   "domain": "time_series_forecasting",
-  "total_items": 4,
+  "total_items": 7,
   "user_stories": [
     {
-      "id": "ML-001",
-      "title": "Implement Dynamic Model Registry",
-      "description": "Create a registry system in the models module that automatically discovers and registers all available model classes, with T-KAN as the default.",
+      "id": "DL-001",
+      "title": "Develop benchmark for current data loader",
+      "description": "Create a script to measure the performance and memory usage of the existing data loader, documenting the OFI calculation and sequence generation logic.",
       "acceptance_criteria": [
-        "Registry automatically detects T-KAN and DeepLOB models from src/models directory.",
-        "Function get_model(model_name) returns the correct model class for 'T-KAN' and 'DeepLOB'.",
-        "Function get_default_model() returns the T-KAN model class.",
-        "The registry is accessible via src.models module for easy import."
+        "Benchmark script runs successfully and outputs memory usage and throughput metrics",
+        "OFI formula is extracted and documented in a markdown file",
+        "Current bottlenecks in data loading are identified and reported"
       ],
-      "verification": "python -c \"from src.models import get_default_model, get_model; assert get_default_model().__name__ == 'T_KAN'; assert get_model('DeepLOB').__name__ == 'DeepLOB'; print('Registry verification passed')\"",
-      "why": "To eliminate hardcoded model references and enable dynamic model selection for the training system.",
+      "verification": "python src/data/benchmark_current.py",
+      "why": "To establish a baseline for refactoring and ensure all requirements are understood",
       "files_touched": [
-        "src/models/__init__.py",
-        "src/models/registry.py"
+        "src/data/benchmark_current.py",
+        "docs/current_loader_analysis.md"
       ],
       "status": "done",
       "attempts": 0,
       "errors": []
     },
     {
-      "id": "ML-002",
-      "title": "Refactor Training Script for Model Agnosticism",
-      "description": "Modify src/train.py to use the model registry for instantiating models, defaulting to T-KAN when no model is specified, and updating logging to be model-agnostic.",
+      "id": "DL-002",
+      "title": "Build memory-mapped Parquet reader",
+      "description": "Implement a memory-mapped data reader for Parquet files to avoid loading entire dataset into RAM, using techniques like PyArrow memory mapping.",
       "acceptance_criteria": [
-        "Training script runs without model argument and defaults to T-KAN.",
-        "Training script accepts --model argument to specify model (e.g., DeepLOB) and instantiates correctly.",
-        "Logging outputs use generic terms like 'model' instead of hardcoded model names.",
-        "The weighted_pearson loss function is integrated and reported during training."
+        "Reader can handle 10.7 million rows without exceeding 16GB RAM in test environment",
+        "Provides lazy loading interface for efficient data access",
+        "Integrates with existing data paths from workspace context"
       ],
-      "verification": "python src/train.py --epochs 1 --batch_size 32 --model T-KAN && python src/train.py --epochs 1 --batch_size 32 --model DeepLOB",
-      "why": "To allow automatic use of the most advanced model while maintaining explicit selection for legacy models.",
+      "verification": "pytest tests/test_memory_mapped_reader.py -v",
+      "why": "To eliminate Out-Of-Memory errors and enable scalable processing of large datasets",
       "files_touched": [
-        "src/train.py"
+        "src/data/memory_mapped_reader.py",
+        "src/data/loader.py"
+      ],
+      "status": "done",
+      "attempts": 0,
+      "errors": []
+    },
+    {
+      "id": "DL-003",
+      "title": "Vectorize Order Flow Imbalance calculation",
+      "description": "Refactor the OFI feature calculation to use vectorized NumPy or PyTorch operations, ensuring mathematical equivalence with the original implementation.",
+      "acceptance_criteria": [
+        "OFI values match exactly with previous calculation on a sample dataset",
+        "Computation time is reduced by at least 50% compared to loop-based version",
+        "Works seamlessly with memory-mapped data chunks"
+      ],
+      "verification": "pytest tests/test_ofi_vectorized.py -v",
+      "why": "To drastically improve throughput and reduce CPU overhead during feature extraction",
+      "files_touched": [
+        "src/data/features.py",
+        "src/data/loader.py"
+      ],
+      "status": "done",
+      "attempts": 0,
+      "errors": []
+    },
+    {
+      "id": "DL-004",
+      "title": "Implement vectorized overlapping sequence generation",
+      "description": "Create a function to generate sequences of length 1000 with overlapping windows using vectorized operations, ensuring output shape (n_sequences, 1000, 32).",
+      "acceptance_criteria": [
+        "Sequences are generated correctly with specified window size and stride",
+        "Memory usage is optimized with no unnecessary large intermediate arrays",
+        "Output can be efficiently batched for PyTorch DataLoader"
+      ],
+      "verification": "pytest tests/test_sequence_generation.py -v",
+      "why": "To prepare normalized, overlapping sequences for the T-KAN model in a memory-efficient manner",
+      "files_touched": [
+        "src/data/sequences.py",
+        "src/data/loader.py"
+      ],
+      "status": "done",
+      "attempts": 0,
+      "errors": []
+    },
+    {
+      "id": "DL-005",
+      "title": "Integrate normalization and tensor conversion",
+      "description": "Apply normalization to the features and convert sequences to PyTorch tensors, integrating with PyTorch DataLoader for training.",
+      "acceptance_criteria": [
+        "Normalization is applied using statistics from the training set, and validation set uses the same statistics",
+        "Final DataLoader yields batches of tensors with shape (batch_size, 1000, 32)",
+        "Data shuffling and batching work correctly for both training and validation"
+      ],
+      "verification": "python -c \"from src.data.loader import get_dataloader; dl = get_dataloader('train', batch_size=32); batch, labels = next(iter(dl)); print(f'Batch shape: {batch.shape}, Labels shape: {labels.shape}')\"",
+      "why": "To provide ready-to-use, normalized data tensors for model training, preserving data integrity",
+      "files_touched": [
+        "src/data/normalization.py",
+        "src/data/loader.py"
       ],
       "status": "failed",
       "attempts": 1,
       "errors": [
-        "Verification timed out (600s)"
+        "Response payload is not completed"
       ]
     },
     {
-      "id": "ML-003",
-      "title": "Create Integration Tests for Model System",
-      "description": "Write pytest tests to verify the model registry and training script functionality with different models, including metric computation.",
+      "id": "DL-006",
+      "title": "Create performance and memory tests",
+      "description": "Develop tests to measure RAM usage and throughput of the refactored loader, comparing with baseline benchmarks.",
       "acceptance_criteria": [
-        "Test file tests/test_model_registry.py exists and tests model discovery and retrieval.",
-        "Test file tests/test_train_integration.py exists and tests training initialization with default and specified models.",
-        "Tests include verification of weighted_pearson metric computation with mock data.",
-        "All tests pass with the refactored code."
+        "Memory usage during full dataset processing remains under 16GB",
+        "Throughput is improved by at least 100% compared to baseline (from DL-001)",
+        "All performance tests pass and generate detailed reports"
       ],
-      "verification": "pytest tests/test_model_registry.py -v && pytest tests/test_train_integration.py -v",
-      "why": "Ensure the dynamic model system is reliable and free of regressions.",
+      "verification": "pytest tests/test_performance.py -v",
+      "why": "To validate that the refactor meets the OOM avoidance and throughput improvement requirements",
       "files_touched": [
-        "tests/test_model_registry.py",
-        "tests/test_train_integration.py"
+        "tests/test_performance.py",
+        "tests/test_memory.py"
       ],
-      "status": "failed",
-      "attempts": 1,
-      "errors": [
-        "Command failed with code 1:\n============================= test session starts ==============================\nplatform darwin -- Python 3.9.13, pytest-7.4.3, pluggy-1.6.0 -- /Users/fedorvabisevic/Documents/Programms/deepRLPH/venv/bin/python3.9\ncachedir: .pytest_cache\nrootdir: /Users/fedorvabisevic/Documents/Programms/deepRLPH\nplugins: anyio-4.12.1\ncollecting ... collected 9 items\n\ntests/test_model_registry.py::TestModelRegistry::test_model_registry_imports PASSED [ 11%]\ntests/test_model_registry.py::TestModelRegistry::test_create_model_factory_function PASSED [ 22%]\ntests/test_model_registry.py::TestModelRegistry::test_model_creation_functions PASSED [ 33%]\ntests/test_model_registry.py::TestModelRegistry::test_model_forward_pass_shapes PASSED [ 44%]\ntests/test_model_registry.py::TestModelRegistry::test_model_parameter_counts PASSED [ 55%]\ntests/test_model_registry.py::TestModelRegistry::test_model_eval_mode PASSED [ 66%]\ntests/test_model_registry.py::TestModelRegistry::test_model_device_movement SKIPPED [ 77%]\ntests/test_model_registry.py::TestModelRegistry::test_model_gradient_flow PASSED [ 88%]\ntests/test_model_registry.py::TestModelRegistry::test_model_batch_independence PASSED [100%]\n\n========================= 8 passed, 1 skipped in 8.40s =========================\n============================= test session starts ==============================\nplatform darwin -- Python 3.9.13, pytest-7.4.3, pluggy-1.6.0 -- /Users/fedorvabisevic/Documents/Programms/deepRLPH/venv/bin/python3.9\ncachedir: .pytest_cache\nr"
-      ]
+      "status": "done",
+      "attempts": 0,
+      "errors": []
     },
     {
-      "id": "ML-004",
-      "title": "Validate Backward Compatibility and Performance",
-      "description": "Test that the refactored system maintains full backward compatibility with legacy models and that performance metrics are preserved.",
+      "id": "DL-007",
+      "title": "Update training pipeline and validate integration",
+      "description": "Modify the training script to use the refactored data loader and run a short training session to ensure end-to-end functionality.",
       "acceptance_criteria": [
-        "Training with DeepLOB model completes without errors and produces similar loss progression as before refactoring.",
-        "The system can achieve a weighted_pearson score of at least 0.35 with appropriate training hyperparameters.",
-        "Export scripts (pt_export.py, onnx_export.py) work correctly with models instantiated via the registry."
+        "Training script runs without errors for at least one epoch",
+        "Model receives data in the correct shape (batch_size, 1000, 32)",
+        "Loss computation works, and weighted_pearson metric is tracked if applicable"
       ],
-      "verification": "python src/train.py --model DeepLOB --epochs 3 --batch_size 32 && python src/pt_export.py --model DeepLOB && python src/onnx_export.py --model DeepLOB",
-      "why": "Confirm that changes do not break existing workflows and that the KPI target is still achievable.",
-      "files_touched": [],
+      "verification": "python src/train.py --epochs 1 --batch_size 32 --data_path data/raw/",
+      "why": "To ensure the refactored loader is fully integrated and supports model training towards the target KPI of weighted_pearson 0.35",
+      "files_touched": [
+        "src/train.py",
+        "src/data/loader.py"
+      ],
       "status": "failed",
       "attempts": 1,
       "errors": [
@@ -489,6 +545,7 @@
         "/Users/fedorvabisevic/Documents/Programms/deepRLPH/workspace/projects/wundernn_time_series_forecaste_20260222_232308/src/train.py",
         "/Users/fedorvabisevic/Documents/Programms/deepRLPH/workspace/projects/wundernn_time_series_forecaste_20260222_232308/src/metrics/evaluator.py",
         "/Users/fedorvabisevic/Documents/Programms/deepRLPH/workspace/projects/wundernn_time_series_forecaste_20260222_232308/src/losses/weighted_pearson.py",
+        "/Users/fedorvabisevic/Documents/Programms/deepRLPH/workspace/projects/wundernn_time_series_forecaste_20260222_232308/src/models/registry.py",
         "/Users/fedorvabisevic/Documents/Programms/deepRLPH/workspace/projects/wundernn_time_series_forecaste_20260222_232308/src/models/__init__.py",
         "/Users/fedorvabisevic/Documents/Programms/deepRLPH/workspace/projects/wundernn_time_series_forecaste_20260222_232308/src/models/t_kan.py",
         "/Users/fedorvabisevic/Documents/Programms/deepRLPH/workspace/projects/wundernn_time_series_forecaste_20260222_232308/src/models/deep_lob.py",
