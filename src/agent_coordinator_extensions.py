@@ -3,7 +3,7 @@
 agent_coordinator_extensions.py - PRD Agent Assignment Extensions
 
 ITEM-004: Agent Assignment Protocol
-Extensions to AgentCoordinator for assigning PRD items to agents.
+Upgraded with OpenAI Guardrails & Human Intervention Patterns.
 """
 
 import asyncio
@@ -20,11 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 class PRDAgentAssignmentMixin:
-    """Mixin for AgentCoordinator to add PRD item assignment.
-
-    Provides assign_prd_item() method that executes the
-    autonomous 'Ralph Loop' by providing the LLM with Native Tools.
-    """
+    """Mixin for AgentCoordinator to add PRD item assignment."""
 
     async def assign_prd_item(
             self,
@@ -33,6 +29,7 @@ class PRDAgentAssignmentMixin:
             project_dir: Path,
             deepseek_client: Any,
             log_callback: Optional[callable] = None,
+            orchestrator_prompt: str = "",  # 🆕 THE MISSING WIRE RECONNECTED!
     ) -> Dict[str, Any]:
 
         async def _log(msg: str):
@@ -52,41 +49,30 @@ class PRDAgentAssignmentMixin:
                 "files_created": [],
             }
 
-        prompt = self._generate_prd_item_prompt(item, project_dir)
+        file_prompt = self._generate_prd_item_prompt(item, project_dir)
 
-        # TRIZ FIX 4: Universal "Bulldozer" Prompt. Works for all tasks, forces progress.
-        system_prompt = (
-            "### Goal\n"
-            "Your mission is to programmatically build the world's most robust, high-performance software. "
-            "You must implement the requested feature, pass the specific verification command, and advance the autonomous pipeline with zero technical debt.\n\n"
+        # 🚀 OpenAI Pattern: Structured Routine & Strict Constraints
+        system_prompt = f"""{orchestrator_prompt}
 
-            "### Return Format\n"
-            "You are an elite AI worker. You must execute your work exclusively through the following strict tool sequence:\n"
-            "1. `read_file`: Audit the existing codebase to ensure architectural alignment.\n"
-            "2. `write_file`: Write production-grade implementation code and comprehensive tests.\n"
-            "3. `execute_command`: Run the exact verification command provided to prove functionality.\n"
-            "4. `finish_task`: Terminate the loop immediately with a professional summary of your architectural changes.\n\n"
+{file_prompt}
 
-            "### Warnings & Strict Constraints\n"
-            "- NO BOILERPLATE HALLUCINATIONS: Do not invent classes like WorkspaceCleaner, runner scripts, or validate.py. Write ONLY the code requested.\n"
-            "- STRICT DOCKER PATHING: In solution.py, you MUST NOT use `os.path.dirname(__file__)` or `Path(__file__)`. You MUST load the model using a strict relative path: `onnx_path = 'model.onnx'`.\n"
-            "- FLAT PACKAGING CONSTRAINT: The final submission must consist of EXACTLY 3 files at the root level: `solution.py`, `utils.py`, and `model.onnx`. DO NOT place them in subdirectories.\n"
-            "- PATH INJECTION: Every Python file you create MUST start exactly with: `import sys, os; sys.path.insert(0, os.path.abspath('.'))`\n"
-            "- TENSOR PRECISION (ML Case): Always cast output tensors to `torch.float32` to prevent competition evaluator precision mismatches.\n"
-            "- NO DUMMY CODE: You are building #1 software. Never write empty stubs or fake models just to trick the verifier. Real code only.\n"
-            "- FAIL-FAST PROTOCOL: If a verification command fails MORE THAN 3 TIMES, stop immediately. Call `finish_task` with 'FAILED: [error]'.\n"
-            "- ITERATION LIMIT: Never reach the 30-iteration timeout. Efficiency is a hallmark of elite engineering.\n\n"
+### AGENTIC ROUTINE
+You are an elite AI worker. You must execute your work through this strict routine:
+1. **Contextualize**: Use `read_file` to audit the existing codebase.
+2. **Implement**: Use `write_file` to write production-grade code.
+3. **Verify**: Use `execute_command` to run the exact verification command.
+4. **Escalate**: If verification fails 3 times, DO NOT guess blindly. Use the `request_human_intervention` tool to escalate.
+5. **Complete**: If verification passes, use `finish_task`.
 
-            "### Context Dump\n"
-            "You are an elite AI worker node operating inside 'deepRLPH', a generalized multi-agent orchestrator for programmatic software construction. "
-            "Whether you are building a low-latency trading model, a scalable API, or a complex distributed system, you are part of an industrial-grade asynchronous pipeline. "
-            "The Orchestrator features a dedicated 'FixLoop' designed to handle controlled failures. "
-            "By admitting a failure via the 'FAILED:' string, you allow the system to pass your high-quality partial work and the error logs to a fresh execution context for final resolution. "
-            "Yield control gracefully to preserve the integrity of the world's #1 software pipeline."
-        )
+### STRICT CONSTRAINTS
+- STRICT DOCKER PATHING: In solution.py, load the model using strictly: `onnx_path = 'model.onnx'`.
+- FLAT PACKAGING: The final submission must be exactly 3 files at root.
+- PATH INJECTION: Every Python file MUST start with: `import sys, os; sys.path.insert(0, os.path.abspath('.'))`
+- GUARDRAIL AWARENESS: Heavy commands (like model training) will be automatically blocked by the system unless you append `--test_mode` or `--fast_dev_run`.
+"""
 
         messages = [
-            {"role": "user", "content": prompt}
+            {"role": "user", "content": "Begin execution."}
         ]
 
         tools = [
@@ -123,7 +109,7 @@ class PRDAgentAssignmentMixin:
                 "type": "function",
                 "function": {
                     "name": "execute_command",
-                    "description": "Execute a shell command in the project root (e.g. pytest tests/ -v)",
+                    "description": "Execute a shell command in the project root",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -136,12 +122,26 @@ class PRDAgentAssignmentMixin:
             {
                 "type": "function",
                 "function": {
+                    "name": "request_human_intervention",
+                    "description": "Escalate to the Human Strategist if you are stuck in a loop or cannot resolve an error.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "reason": {"type": "string", "description": "Detailed technical reason for escalation"}
+                        },
+                        "required": ["reason"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
                     "name": "finish_task",
                     "description": "Mark the task as completely finished.",
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "summary": {"type": "string", "description": "Summary of what was done or why it failed"}
+                            "summary": {"type": "string", "description": "Summary of changes"}
                         },
                         "required": ["summary"]
                     }
@@ -174,7 +174,7 @@ class PRDAgentAssignmentMixin:
                     await _log("⚠️ Agent didn't call any tools, nudging...")
                     messages.append({
                         "role": "user",
-                        "content": "You must use the provided tools to interact with the project. If you are done, use finish_task."
+                        "content": "You must use the provided tools. Use finish_task if done, or request_human_intervention if stuck."
                     })
                     continue
 
@@ -218,51 +218,71 @@ class PRDAgentAssignmentMixin:
                     elif func_name == "execute_command":
                         cmd = args.get("command", "")
 
-                        # Fix for Pytest visibility issues
-                        if cmd.startswith("pytest "):
-                            cmd = "python -m " + cmd
-
-                        await _log(f"   💻 Executing: {cmd}")
-                        try:
-                            env = os.environ.copy()
-                            env["PYTHONPATH"] = str(project_dir)
-
-                            proc = await asyncio.create_subprocess_shell(
-                                cmd,
-                                cwd=str(project_dir),
-                                env=env,
-                                stdout=asyncio.subprocess.PIPE,
-                                stderr=asyncio.subprocess.PIPE
+                        # ==========================================
+                        # 🚀 OPENAI PATTERN: TOOL SAFEGUARDS (GUARDRAILS)
+                        # ==========================================
+                        if "train.py" in cmd and "--test_mode" not in cmd and "--fast_dev_run" not in cmd:
+                            tool_result = (
+                                "🚫 GUARDRAIL BLOCKED: You attempted to run a full training loop without "
+                                "a test flag. This will cause a 600s timeout. You MUST append '--test_mode' "
+                                "or '--fast_dev_run' to bypass heavy data loading."
                             )
-                            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120.0)
-                            out_str = stdout.decode('utf-8', errors='replace')
-                            err_str = stderr.decode('utf-8', errors='replace')
+                            await _log(f"   🛡️ Guardrail intercepted unsafe command: {cmd}")
+                        else:
+                            if cmd.startswith("pytest "):
+                                cmd = "python -m " + cmd
 
-                            tool_result = f"Exit code: {proc.returncode}\n"
-                            if out_str: tool_result += f"STDOUT:\n{out_str}\n"
-                            if err_str: tool_result += f"STDERR:\n{err_str}\n"
+                            await _log(f"   💻 Executing: {cmd}")
+                            try:
+                                env = os.environ.copy()
+                                env["PYTHONPATH"] = str(project_dir)
 
-                            if proc.returncode == 0:
-                                await _log(f"   ✅ Command passed")
+                                proc = await asyncio.create_subprocess_shell(
+                                    cmd,
+                                    cwd=str(project_dir),
+                                    env=env,
+                                    stdout=asyncio.subprocess.PIPE,
+                                    stderr=asyncio.subprocess.PIPE
+                                )
+                                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120.0)
+                                out_str = stdout.decode('utf-8', errors='replace')
+                                err_str = stderr.decode('utf-8', errors='replace')
 
-                                clean_cmd = cmd.replace("python -m ", "").strip()
-                                expected_cmd = item.verification_command.replace("python -m ", "").strip()
+                                tool_result = f"Exit code: {proc.returncode}\n"
+                                if out_str: tool_result += f"STDOUT:\n{out_str}\n"
+                                if err_str: tool_result += f"STDERR:\n{err_str}\n"
 
-                                # STRICT GUILLOTINE: Exact match only. No cheating allowed.
-                                if clean_cmd == expected_cmd:
-                                    await _log("   🎯 Official Verification Command passed! Auto-terminating loop.")
-                                    return {
-                                        "status": "success",
-                                        "files_created": list(files_created),
-                                        "response": "Auto-terminated due to successful official verification."
-                                    }
-                            else:
-                                await _log(f"   ❌ Command failed (code {proc.returncode})")
+                                if proc.returncode == 0:
+                                    await _log(f"   ✅ Command passed")
+                                    clean_cmd = cmd.replace("python -m ", "").strip()
+                                    expected_cmd = item.verification_command.replace("python -m ", "").strip()
 
-                        except asyncio.TimeoutError:
-                            tool_result = "Error: Command timed out after 120 seconds."
-                        except Exception as e:
-                            tool_result = f"Error executing command: {e}"
+                                    if clean_cmd == expected_cmd:
+                                        await _log("   🎯 Official Verification Command passed! Auto-terminating loop.")
+                                        return {
+                                            "status": "success",
+                                            "files_created": list(files_created),
+                                            "response": "Auto-terminated due to successful official verification."
+                                        }
+                                else:
+                                    await _log(f"   ❌ Command failed (code {proc.returncode})")
+
+                            except asyncio.TimeoutError:
+                                tool_result = "Error: Command timed out after 120 seconds."
+                            except Exception as e:
+                                tool_result = f"Error executing command: {e}"
+
+                    # ==========================================
+                    # 🚀 OPENAI PATTERN: HUMAN INTERVENTION HANDOFF
+                    # ==========================================
+                    elif func_name == "request_human_intervention":
+                        reason = args.get("reason", "No reason provided")
+                        await _log(f"   🙋‍♂️ Escalating to Human: {reason}")
+                        return {
+                            "status": "failed",  # Triggers the HITL UI logic
+                            "error": f"HUMAN INTERVENTION REQUESTED: {reason}",
+                            "files_created": list(files_created)
+                        }
 
                     elif func_name == "finish_task":
                         finished = True
@@ -277,7 +297,7 @@ class PRDAgentAssignmentMixin:
                         "role": "tool",
                         "tool_call_id": call_id,
                         "name": func_name,
-                        "content": str(tool_result)[:6000]  # Truncated to avoid context limits
+                        "content": str(tool_result)[:6000]
                     })
 
                 if finished:
@@ -287,10 +307,9 @@ class PRDAgentAssignmentMixin:
                         "response": "Task finished successfully via tool call."
                     }
 
-            # TRIZ FIX 2: Graceful Degradation. Don't throw away code just because it hit the limit.
             await _log(f"⚠️ Reached max iterations ({max_iterations}). Forcing evaluation of generated code.")
             return {
-                "status": "success",  # Return success so ExecutionEngine runs official check
+                "status": "success",
                 "response": "Max iterations reached. Proceeding to official validation.",
                 "files_created": list(files_created)
             }
@@ -305,19 +324,16 @@ class PRDAgentAssignmentMixin:
             }
 
     def _generate_prd_item_prompt(self, item: PRDItem, project_dir: Path) -> str:
-        """Generate prompt, pre-loading existing files and directory structure."""
         acceptance = "\n".join([f"  - {c}" for c in item.acceptance_criteria])
         files = ", ".join(item.files_touched) if item.files_touched else "(to be determined)"
 
-        # TRIZ FIX 3: Give the agent a map of the directory
         try:
-            # Quick way to get a basic directory tree string in Python
             tree_paths = []
             for root, dirs, filenames in os.walk(project_dir):
                 if 'venv' in root or '.git' in root or '__pycache__' in root:
                     continue
                 level = root.replace(str(project_dir), '').count(os.sep)
-                if level < 3:  # Keep it shallow to save tokens
+                if level < 3:
                     indent = ' ' * 4 * (level)
                     tree_paths.append(f"{indent}{os.path.basename(root)}/")
                     subindent = ' ' * 4 * (level + 1)
@@ -340,9 +356,7 @@ class PRDAgentAssignmentMixin:
                     except Exception:
                         pass
 
-        return f"""Implement the following PRD item:
-
-**Item ID**: {item.item_id}
+        return f"""**Item ID**: {item.item_id}
 **Title**: {item.title}
 
 **Acceptance Criteria**:
@@ -356,9 +370,4 @@ class PRDAgentAssignmentMixin:
 ```text
 {tree_output}
 {existing_context}
-
-Use `write_file` to write the full implementation. 
-Then, use `execute_command` to run `{item.verification_command}`.
-If it fails, read the error and FIX your code. 
-Only call `finish_task` when the verification command succeeds with Exit Code 0!
 """

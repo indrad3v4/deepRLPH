@@ -1756,8 +1756,18 @@ I'll answer as a world-famous TRIZ Expert PhD in Applied Creative Problem Solvin
         self.exec_logs.delete('1.0', 'end')
         self.exec_progress['value'] = 0
 
-        # 🆕 Calculate logic based on Execution Mode
-        mode = getattr(self, "exec_mode_var", tk.StringVar(value="parallel")).get()
+        # ==========================================
+        # 🚀 TRIZ FIX: EXPLICIT UI STATE EXTRACTION
+        # ==========================================
+        try:
+            # Force read the actual text in the combobox widget, bypassing StringVar sync issues
+            mode = self.mode_cb.get().strip().lower()
+            if mode not in ['parallel', 'council']:
+                mode = 'parallel'  # Fallback
+        except Exception as e:
+            logger.warning(f"Failed to read mode combobox, defaulting to parallel: {e}")
+            mode = 'parallel'
+
         backlog_size = self._get_backlog_size()
 
         try:
@@ -1786,9 +1796,13 @@ I'll answer as a world-famous TRIZ Expert PhD in Applied Creative Problem Solvin
             self.after(0, lambda: self.exec_status_label.config(text=f"Progress: {pct:.1f}%"))
 
         async def execute():
+            # 🆕 Pass execution_mode to the orchestrator
             result = await self.orchestrator.execute_prd_loop(
-                prd=prd_to_run, num_agents=num_agents,
-                log_callback=log_cb, progress_callback=progress_cb
+                prd=prd_to_run,
+                num_agents=num_agents,
+                execution_mode=mode,  # NOW GUARANTEED TO MATCH UI
+                log_callback=log_cb,
+                progress_callback=progress_cb
             )
             self.after(0, lambda: self.exec_btn.config(state='normal'))
             self.execution_running = False

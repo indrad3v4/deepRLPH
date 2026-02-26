@@ -452,7 +452,8 @@ class ExecutionEngine:
                 agent_id=agent_id,
                 project_dir=self.project_dir,
                 deepseek_client=self.deepseek,
-                log_callback=self._log
+                log_callback=self._log,
+                orchestrator_prompt=orchestrator_prompt  # 🆕 THE MISSING WIRE
             )
 
             files = code_result.get("files_created", [])
