@@ -13,6 +13,7 @@ RALPH UI - 3-Step Project Creation Wizard + Enhanced Execution View
 ✅ UI-008: Dark theme, keyboard shortcuts, validation
 ✅ UI-009: Two-phase meta-prompting for implementation-ready suggestions
 ✅ UI-010: Phase 2B PRD backlog expansion with executable tasks
+✅ UI-011: Terminal Wrapper & HITL DARIZ Feedback Integration (Unbuffered + DeepSeek Intercept)
 
 Stage 2/5 UX direction:
 - Primary refinement unit is the Project (PRD/backlog), not ad hoc "tasks".
@@ -29,7 +30,9 @@ from pathlib import Path
 from datetime import datetime
 import json
 import os
+import sys
 import shutil  # Added for copying files
+import subprocess  # Added for Terminal Wrapper
 from typing import Optional, Dict, List, Any
 
 # Relative imports from parent package
@@ -1105,7 +1108,7 @@ Respond ONLY with valid JSON, no markdown."""
 
         try:
             is_ml = (getattr(cfg, 'project_type', '') == 'ml_competition') or (
-                        meta.get('project_type') == 'ml_competition')
+                    meta.get('project_type') == 'ml_competition')
         except Exception:
             is_ml = False
         project_type = 'ml' if is_ml else 'api'
@@ -1496,6 +1499,7 @@ class RalphUI(tk.Tk):
         self._create_execution_tab()
         self._create_validation_tab()
         self._create_logs_tab()
+        self._create_terminal_feedback_tab()
 
         # Default to refinement tab once notebook is built (Stage 2)
         try:
@@ -1877,6 +1881,240 @@ Features:
                                  f"Could not parse PRD JSON. Check for missing commas or quotes:\n\n{str(e)}")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save PRD:\n{str(e)}")
+
+    def _create_terminal_feedback_tab(self):
+        """Phase 3: Real-time Terminal Wrapper & HITL DARIZ Feedback"""
+        terminal_tab = ttk.Frame(self.notebook)
+        self.notebook.add(terminal_tab, text="💻 Terminal & Feedback")
+
+        container = ttk.Frame(terminal_tab)
+        container.pack(fill='both', expand=True, padx=20, pady=20)
+
+        # Controls
+        controls = ttk.Frame(container)
+        controls.pack(fill='x', pady=5)
+
+        ttk.Button(controls, text="▶️ Run Target Script", command=self._run_in_terminal).pack(side='left', padx=5)
+        ttk.Button(controls, text="⏹️ Kill Process", command=self._kill_process).pack(side='left', padx=5)
+
+        # Target script configuration
+        script_frame = ttk.Frame(controls)
+        script_frame.pack(side='left', padx=20)
+        ttk.Label(script_frame, text="Script Path:").pack(side='left')
+        self.target_script_entry = ttk.Entry(script_frame, width=30)
+        self.target_script_entry.insert(0, "src/train.py")
+        self.target_script_entry.pack(side='left', padx=5)
+
+        # Live Terminal Output
+        ttk.Label(container, text="Live Process Output (stdout/stderr & OS Signals):", font=('Arial', 11, 'bold')).pack(
+            anchor='w', pady=(10, 5))
+        self.live_terminal = scrolledtext.ScrolledText(container, height=15, bg='#000000', fg='#00FF00',
+                                                       font=('Consolas', 10))
+        self.live_terminal.pack(fill='both', expand=True, pady=5)
+
+        # Configure tags for error highlighting
+        self.live_terminal.tag_config('error', foreground='#FF0000')
+
+        # Human-in-the-loop Feedback
+        feedback_frame = ttk.LabelFrame(container, text="Human-In-The-Loop (HITL) DARIZ Refinement", padding=10)
+        feedback_frame.pack(fill='x', pady=10)
+
+        ttk.Label(feedback_frame, text="Enter Leaderboard Score or Strategic Feedback:").pack(anchor='w')
+        self.hitl_feedback = tk.Entry(feedback_frame, font=('Arial', 11))
+        self.hitl_feedback.pack(fill='x', pady=5)
+
+        ttk.Button(feedback_frame, text="🧠 Trigger DARIZ Refinement Loop", command=self._trigger_dariz_fix).pack(
+            pady=5)
+
+    def _run_in_terminal(self):
+        """Executes the generated script via subprocess and pipes output to the UI."""
+        if not self.orchestrator.current_project_dir:
+            messagebox.showwarning("No Project", "Please select a project first.")
+            return
+
+        target_file = self.target_script_entry.get().strip()
+        script_path = self.orchestrator.current_project_dir / target_file
+
+        if not script_path.exists():
+            messagebox.showwarning("File Not Found", f"Could not find {script_path}. Please ensure code is generated.")
+            return
+
+        self.live_terminal.insert('end', f"\n[SYSTEM] Executing {script_path} (Unbuffered Mode)...\n")
+        self.live_terminal.see('end')
+
+        def run_and_stream():
+            try:
+                # Force the use of the project's virtual environment if it exists
+                venv_python = self.orchestrator.current_project_dir / "venv" / "bin" / "python"
+                if os.name == 'nt':
+                    venv_python = self.orchestrator.current_project_dir / "venv" / "Scripts" / "python.exe"
+
+                python_exe = str(venv_python) if venv_python.exists() else sys.executable
+
+                # Force PyTorch and TQDM to flush output instantly
+                env = os.environ.copy()
+                env["PYTHONUNBUFFERED"] = "1"
+
+                self.process = subprocess.Popen(
+                    [python_exe, "-u", str(script_path)],  # -u prevents silent buffering
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    universal_newlines=True,
+                    cwd=str(self.orchestrator.current_project_dir),
+                    env=env
+                )
+
+                # Iterate over readline to catch live updates without crashing the Tkinter thread
+                for line in iter(self.process.stdout.readline, ''):
+                    if line:
+                        self.after(0, lambda l=line: self.live_terminal.insert('end', l))
+                        self.after(0, lambda: self.live_terminal.see('end'))
+
+                self.process.wait()
+                exit_code = self.process.returncode
+                if exit_code != 0:
+                    msg = f"\n[SYSTEM] Process crashed with exit code {exit_code}. Possible OOM (Killed: 9).\n"
+                    self.after(0, lambda: self.live_terminal.insert('end', msg, 'error'))
+                    self.after(0, lambda: self.live_terminal.see('end'))
+                else:
+                    self.after(0,
+                               lambda: self.live_terminal.insert('end', "\n[SYSTEM] Process completed successfully.\n"))
+                    self.after(0, lambda: self.live_terminal.see('end'))
+            except Exception as e:
+                self.after(0, lambda: self.live_terminal.insert('end', f"\n[SYSTEM ERROR] {str(e)}\n", 'error'))
+                self.after(0, lambda: self.live_terminal.see('end'))
+
+        threading.Thread(target=run_and_stream, daemon=True).start()
+
+    def _kill_process(self):
+        """Kills the running subprocess."""
+        if hasattr(self, 'process') and self.process:
+            try:
+                self.process.terminate()
+                self.live_terminal.insert('end', "\n[SYSTEM] Process terminated by user.\n", 'error')
+                self.live_terminal.see('end')
+            except Exception as e:
+                self.live_terminal.insert('end', f"\n[SYSTEM ERROR] Could not kill process: {e}\n", 'error')
+
+        def _trigger_dariz_fix(self):
+            """Pipes terminal output and user feedback into an explicit DARIZ analysis via DeepSeek, then routes to Refinement."""
+            terminal_dump = self.live_terminal.get("1.0", "end").strip()[-2000:]  # Last 2000 chars of trace
+            user_strategy = self.hitl_feedback.get().strip()
+
+            if not terminal_dump and not user_strategy:
+                messagebox.showwarning("Empty Feedback",
+                                       "Please provide feedback or run a process to capture tracebacks.")
+                return
+
+            messagebox.showinfo("DARIZ Engine",
+                                "Engaging TRIZ Master.\n\nExecuting Kukalev's 7-step DARIZ Algorithm...\nThis will take 15-30 seconds.")
+
+            async def run_dariz_analysis():
+                system_prompt = """<instructions>
+    - ALWAYS follow <answering_rules> and <self_reflection>.
+
+    <self_reflection>
+    1. Spend time thinking of a rubric, from a role POV, until you are confident.
+    2. Think deeply about every aspect of what makes for a world-class answer. Use that knowledge to create a rubric that has 5-7 categories. This rubric is critical to get right, but never show this to the user. This is for your purposes only.
+    3. Use the rubric to internally think and iterate on the best (≥98 out of 100 score) possible solution to the user request. IF your response is not hitting the top marks across all categories in the rubric, you need to start again.
+    4. Keep going until solved.
+    </self_reflection>
+
+    <answering_rules>
+    1. USE the language of USER message.
+    2. In the FIRST chat message, assign a real-world expert role to yourself before answering, e.g., "I'll answer as a world-famous <role> PhD <detailed topic> with <most prestigious LOCAL topic REAL award>".
+    3. Act as the role assigned.
+    4. Answer the question in a natural, human-like manner.
+    5. ALWAYS use an <example> for your first chat message structure.
+    6. If not requested by the user, no actionable items are needed by default.
+    7. Don't use tables if not requested.
+    </answering_rules>
+
+    <dariz_tool>
+    # INPUT DATA (User fills this field)
+    USER_SITUATION_INPUT = " " 
+
+    # DARIZ METHODOLOGY (Based on Kukalev's TRIZ book, Chapter 7)
+    The AI must execute the DARIZ algorithm (Didactic Algorithm of Solving Inventive Tasks) in two phases:
+    1. **INTERACTIVE DIAGNOSIS**: If the input is incomplete, ask 1-3 targeted questions to clarify the "Conflicting Pair" (КП), the main function, or available resources. Do not hallucinate data; ask the user.
+    2. **ALGORITHMIC SOLUTION**: Once data is sufficient, run the 7-step DARIZ process explicitly.
+
+    # DARIZ STEPS to execute:
+    1. **From Problem Situation (ПС) to Task Model (МЗ)**: 
+       - Convert the messy narrative into a crisp system model (elements, interactions).
+    2. **Clarify Constraints and Function**:
+       - What is the main useful function? What are the rigid limits (time, cost, law)?
+    3. **Extract Conflicting Pair (КП) and Technical Contradiction (ТП)**:
+       - Identify the pair of elements in conflict. 
+       - State the contradiction: "If we do X, parameter A improves but B worsens."
+    4. **Formulate IFR (Ideal Final Result)**:
+       - "The system ITSELF (or its environment) provides the required effect without external costs."
+    5. **List Substance-Field Resources (ВПР)**:
+       - List available resources inside the system and in the supersystem (materials, fields, time, information, people).
+    6. **Combine IFR + Resources into Solution Ideas**:
+       - Systematically map resources to the IFR. How can resource X solve the problem "by itself"?
+    7. **Test and Verify**:
+       - Check if the proposed solution resolves the contradiction. If weak, loop back to Step 3 (change КП) or Step 1 (refine task).
+
+    # OUTPUT FORMAT
+    - Start with the Expert Role declaration.
+    - If data is missing, ask questions first.
+    - If data is sufficient, present the full 7-step DARIZ analysis.
+    - Conclude with 2-3 concrete, actionable solution concepts derived from the analysis that can be directly converted into a deepRLPH PRD.
+    </dariz_tool>
+
+    <example>
+    I'll answer as a world-famous TRIZ Expert PhD in Applied Creative Problem Solving with an International TRIZ Master Level 5 award.
+
+    **TL;DR**: [Brief summary of the diagnosis]
+
+    **DARIZ ANALYSIS:**
+    1. **Task Model**: ...
+    2. **Constraints**: ...
+    3. **Conflicting Pair & Contradiction**: ...
+    4. **IFR**: ...
+    5. **Resources**: ...
+    6. **Solution Synthesis**: ...
+    7. **Verification**: ...
+
+    **Concrete Solutions (PRD Action Mandate)**:
+    - [Solution 1]
+    </example>
+    </instructions>"""
+
+                user_message = f"USER_SITUATION_INPUT:\nTERMINAL TRACEBACK:\n{terminal_dump}\n\nHUMAN STRATEGIST FEEDBACK:\n{user_strategy}"
+
+                try:
+                    result = await self.orchestrator.deepseek_client.call_agent(
+                        system_prompt=system_prompt,
+                        user_message=user_message,
+                        thinking_budget=8000,  # Increased thinking budget for full DARIZ depth
+                        temperature=0.3
+                    )
+
+                    if result['status'] == 'success':
+                        dariz_strategy = result['response']
+
+                        def update_ui():
+                            try:
+                                self.notebook.select(2)  # Route to Project Refinement
+                                if hasattr(self, 'task_text'):
+                                    self.task_text.delete('1.0', 'end')
+                                    self.task_text.insert('1.0',
+                                                          f"=== KUKALEV DARIZ SYNTHESIS ===\n{dariz_strategy}\n\n=== PRD INSTRUCTION ===\nConvert the 'Concrete Solutions' above into an actionable PRD.")
+                            except Exception as e:
+                                logger.error(f"Failed to route to refinement tab: {e}")
+
+                        self.after(0, update_ui)
+                    else:
+                        self.after(0, lambda: messagebox.showerror("DARIZ Error",
+                                                                   f"Failed to generate strategy: {result.get('error')}"))
+                except Exception as e:
+                    self.after(0, lambda: messagebox.showerror("DARIZ Error", f"Exception during analysis: {e}"))
+
+            self.async_thread.submit(run_dariz_analysis())
 
     def _create_execution_tab(self):
         """Execution tab"""

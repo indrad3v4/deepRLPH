@@ -47,8 +47,8 @@ class WeightedPearsonCorrelationLoss(nn.Module):
         target_flat = targets.reshape(-1, targets.shape[-1])
         
         # Get absolute values of targets for weighting
-        # Use detach() to prevent gradient flow through weights
-        weights = torch.abs(target_flat.detach())
+        # CRITICAL: Do NOT use detach() - we need gradients to flow through weights
+        weights = torch.abs(target_flat)
         
         # Add small epsilon to avoid zero weights
         weights = weights + self.eps

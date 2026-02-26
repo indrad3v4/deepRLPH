@@ -10,19 +10,21 @@ from torch.utils.data import DataLoader
 import time
 from pathlib import Path
 import warnings
+import argparse
 
 # Suppress warnings for cleaner logs
 warnings.filterwarnings('ignore')
 
 # Import project modules
-from src.models.deep_lob import create_model
+from src.models.deep_lob import create_model as create_deep_lob
+from src.models.t_kan import create_model as create_t_kan
 from src.data.loader import OFIDataLoader
 from src.losses.weighted_pearson import WeightedPearsonCorrelationLoss
 
 
 class TrainingPipeline:
     """
-    Resilient Training Pipeline for DeepLOB.
+    Resilient Training Pipeline for Time Series Forecasting Models.
 
     TRIZ Principle 9: Prior Counteraction.
     It catches infinite/NaN gradients BEFORE they poison the network,
@@ -39,7 +41,8 @@ class TrainingPipeline:
             weight_decay: float = 1e-2,
             max_epochs: int = 10,
             patience: int = 3,
-            gradient_clip: float = 6.0
+            gradient_clip: float = 6.0,
+            model_name: str = 'deep_lob'
     ):
         self.model = model.to(device)
         self.train_loader = train_loader
@@ -48,6 +51,7 @@ class TrainingPipeline:
         self.max_epochs = max_epochs
         self.patience = patience
         self.gradient_clip = gradient_clip
+        self.model_name = model_name
 
         self.checkpoint_dir = Path('models/checkpoints')
         self.final_dir = Path('models/final')
@@ -65,10 +69,11 @@ class TrainingPipeline:
 
         self.history = {
             'train_loss': [], 'val_loss': [], 'val_pearson': [],
-            'best_val_loss': float('inf'), 'best_epoch': 0
+            'best_val_loss': float('inf'), 'best_epoch': 0,
+            'train_pearson': [], 'val_pearson_history': []
         }
 
-        print(f"✅ Training pipeline initialized on {device.upper()}")
+        print(f"✅ Training pipeline initialized for {model_name} on {device.upper()}")
         print(f"✅ Total parameters: {sum(p.numel() for p in self.model.parameters()):,}")
 
     def train_epoch(self) -> float:
@@ -148,16 +153,18 @@ class TrainingPipeline:
         checkpoint = {
             'epoch': epoch,
             'model_state_dict': self.model.state_dict(),
-            'val_loss': val_loss
+            'val_loss': val_loss,
+            'model_name': self.model_name,
+            'optimizer_state_dict': self.optimizer.state_dict()
         }
         # Save to checkpoints
-        torch.save(checkpoint, self.checkpoint_dir / 'best_model.pt')
+        torch.save(checkpoint, self.checkpoint_dir / f'best_{self.model_name}.pt')
         # Save directly to final for easy export
-        torch.save(checkpoint, self.final_dir / 'best_model.pt')
+        torch.save(checkpoint, self.final_dir / f'best_{self.model_name}.pt')
 
     def train(self):
         print("\n" + "=" * 60)
-        print("🚀 Starting Training: Unleashing the Beast (Anti-Overfit Edition)")
+        print(f"🚀 Starting Training for {self.model_name.upper()}: Unleashing the Beast (Anti-Overfit Edition)")
         print("=" * 60)
 
         no_improvement_count = 0
@@ -172,6 +179,12 @@ class TrainingPipeline:
             # Unmasking the Pearson Score (Loss = 1 - Pearson)
             train_pearson = 1.0 - train_loss
             val_pearson = 1.0 - val_loss
+
+            # Store history
+            self.history['train_loss'].append(train_loss)
+            self.history['val_loss'].append(val_loss)
+            self.history['train_pearson'].append(train_pearson)
+            self.history['val_pearson_history'].append(val_pearson)
 
             self.scheduler.step(val_loss)
 
@@ -194,45 +207,123 @@ class TrainingPipeline:
 
         best_pearson = 1.0 - self.history['best_val_loss']
         print("\n" + "=" * 60)
-        print(f"🎯 Training Complete. 🏆 Best Validation Pearson: {best_pearson:.4f} (epoch {self.history['best_epoch']})")
+        print(f"🎯 Training Complete for {self.model_name.upper()}. 🏆 Best Validation Pearson: {best_pearson:.4f} (epoch {self.history['best_epoch']})")
         print("=" * 60)
+        
+        return best_pearson
+
+
+def load_config(model_type: str, fast_dev_run: bool = False, test_mode: bool = False):
+    """Load configuration based on model type."""
+    if model_type == 't_kan':
+        # T-KAN specific configuration
+        config = {
+            'batch_size': 32,
+            'sequence_length': 1000,
+            'learning_rate': 0.001,  # Higher LR for KAN
+            'weight_decay': 0.01,
+            'max_epochs': 50,
+            'patience': 5,
+            'gradient_clip': 5.0,
+            'max_sequences': 20000,
+            'test_mode': False
+        }
+    else:
+        # Default DeepLOB config
+        config = {
+            'batch_size': 32,
+            'sequence_length': 1000,
+            'learning_rate': 0.0005,
+            'weight_decay': 1e-2,
+            'max_epochs': 10,
+            'patience': 3,
+            'gradient_clip': 6.0,
+            'max_sequences': 20000,
+            'test_mode': False
+        }
+    
+    # Override for fast dev run
+    if fast_dev_run:
+        config['max_epochs'] = 1
+        config['max_sequences'] = 100
+        config['test_mode'] = True
+    
+    # Override for test mode
+    if test_mode:
+        config['test_mode'] = True
+    
+    return config
+
+
+def create_model(model_type: str):
+    """Create model based on type."""
+    if model_type == 't_kan':
+        print("🔧 Creating TemporalKAN model...")
+        return create_t_kan()
+    else:
+        print("🔧 Creating deep_lob model...")
+        return create_deep_lob()
 
 
 def main():
-    # --- ANTI-OVERFIT CONFIGURATION (Mac-Safe Edition) ---
-    config = {
-        'batch_size': 32,             # Stable gradient estimation
-        'sequence_length': 1000,
-        'learning_rate': 0.0005,      # Lowered to prevent instant memorization
-        'weight_decay': 1e-2,         # 100x STRONGER L2 Penalty!
-        'max_epochs': 10,             # Longer training curve
-        'patience': 3,                # Wait longer before stopping
-        'gradient_clip': 6.0,
-        'max_sequences': 20000,       # 7x more data! Safely consumes ~3.2GB RAM on an old Mac
-        'test_mode': False
-    }
-
-    print("Configuration:")
-    for key, value in config.items(): print(f"  {key}: {value}")
-
-    print("\nInitializing Data Loaders...")
+    parser = argparse.ArgumentParser(description='Train time series forecasting models')
+    parser.add_argument('--model', type=str, default='deep_lob', 
+                       choices=['deep_lob', 't_kan'], help='Model type to train')
+    parser.add_argument('--max_epochs', type=int, default=None, help='Maximum number of epochs')
+    parser.add_argument('--epochs', type=int, default=None, help='Maximum number of epochs (alias for --max_epochs)')
+    parser.add_argument('--fast_dev_run', action='store_true', help='Run a quick development test')
+    parser.add_argument('--dry-run', action='store_true', help='Run a quick development test (alias for --fast_dev_run)')
+    parser.add_argument('--test_mode', action='store_true', help='Use synthetic data for testing')
+    
+    args = parser.parse_args()
+    
+    # Handle aliases
+    if args.epochs is not None:
+        args.max_epochs = args.epochs
+    if args.dry_run:
+        args.fast_dev_run = True
+    
+    # Load configuration
+    config = load_config(args.model, args.fast_dev_run, args.test_mode)
+    
+    # Override config with command line arguments
+    if args.max_epochs is not None:
+        config['max_epochs'] = args.max_epochs
+    
+    print(f"\n📋 Configuration for {args.model.upper()}:")
+    for key, value in config.items(): 
+        print(f"  {key}: {value}")
+    
+    print(f"\nInitializing Data Loaders...")
     train_dataset = OFIDataLoader('data/raw/train.parquet', config['sequence_length'], config['batch_size'], True,
                                   'cpu', config['max_sequences'], config['test_mode'])
     val_dataset = OFIDataLoader('data/raw/valid.parquet', config['sequence_length'], config['batch_size'], False, 'cpu',
                                 config['max_sequences'], config['test_mode'])
-
+    
+    # Create model
+    model = create_model(args.model)
+    
     pipeline = TrainingPipeline(
-        model=create_model(),
+        model=model,
         train_loader=train_dataset.dataloader,
         val_loader=val_dataset.dataloader,
         learning_rate=config['learning_rate'],
         weight_decay=config['weight_decay'],
         max_epochs=config['max_epochs'],
         patience=config['patience'],
-        gradient_clip=config['gradient_clip']
+        gradient_clip=config['gradient_clip'],
+        model_name=args.model
     )
-
-    pipeline.train()
+    
+    best_pearson = pipeline.train()
+    
+    # Check if validation pearson meets acceptance criteria
+    if best_pearson >= 0.25:
+        print(f"\n✅ SUCCESS: Validation weighted_pearson metric reached {best_pearson:.4f} (>= 0.25)")
+    else:
+        print(f"\n⚠️ WARNING: Validation weighted_pearson metric is {best_pearson:.4f} (< 0.25)")
+    
+    return best_pearson
 
 
 if __name__ == "__main__":

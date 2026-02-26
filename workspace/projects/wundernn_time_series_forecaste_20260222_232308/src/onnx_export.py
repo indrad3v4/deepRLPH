@@ -5,28 +5,47 @@ sys.path.insert(0, os.path.abspath('.'))
 import torch
 import torch.nn as nn
 import numpy as np
-from models.deep_lob import TemporalFusionDeepLOB, create_model
+import argparse
+from models.deep_lob import create_model as create_deep_lob
+from models.t_kan import create_model as create_t_kan
 
 
-def export_model_to_onnx():
+def export_model_to_onnx(model_type='deep_lob', checkpoint_path=None):
     """
-    Export the Temporal Fusion DeepLOB model to ONNX format.
+    Export model to ONNX format.
     
-    The model accepts input of shape (batch, 1000, 32)
-    and produces output of shape (batch, 901, 2).
+    Args:
+        model_type: 'deep_lob' or 't_kan'
+        checkpoint_path: Path to checkpoint file
     
     The exported model will be saved as 'model.onnx' in the root directory.
     """
-    print("Starting ONNX export...")
+    print(f"Starting ONNX export for {model_type.upper()}...")
     
-    # Create the model
-    model = create_model()
+    # Create the model based on type
+    if model_type == 'deep_lob':
+        model = create_deep_lob()
+        input_shape = (1, 1000, 32)
+    elif model_type == 't_kan':
+        model = create_t_kan()
+        input_shape = (1, 1000, 40)
+    else:
+        raise ValueError(f"Unknown model type: {model_type}")
+    
+    # Load checkpoint if provided
+    if checkpoint_path and os.path.exists(checkpoint_path):
+        print(f"Loading checkpoint from {checkpoint_path}")
+        checkpoint = torch.load(checkpoint_path, map_location='cpu')
+        if 'model_state_dict' in checkpoint:
+            model.load_state_dict(checkpoint['model_state_dict'])
+        else:
+            model.load_state_dict(checkpoint)
+    
     model.eval()  # Set to evaluation mode
     
     # Create dummy input with the correct shape
-    # Input: (batch_size, sequence_length=1000, features=32)
     batch_size = 1
-    dummy_input = torch.randn(batch_size, 1000, 32)
+    dummy_input = torch.randn(*input_shape)
     
     print(f"Model input shape: {dummy_input.shape}")
     
@@ -110,15 +129,28 @@ def export_model_to_onnx():
     return True
 
 
-if __name__ == "__main__":
+def main():
+    parser = argparse.ArgumentParser(description='Export model to ONNX format')
+    parser.add_argument('--model', type=str, default='deep_lob', 
+                       choices=['deep_lob', 't_kan'],
+                       help='Model type to export')
+    parser.add_argument('--checkpoint', type=str, default=None,
+                       help='Path to checkpoint file')
+    
+    args = parser.parse_args()
+    
     try:
-        success = export_model_to_onnx()
+        success = export_model_to_onnx(args.model, args.checkpoint)
         if success:
             print("\n" + "="*50)
             print("ONNX EXPORT SUMMARY:")
             print("="*50)
+            print(f"Model type: {args.model.upper()}")
             print(f"Model saved as: model.onnx")
-            print(f"Input shape: (batch, 1000, 32)")
+            if args.model == 'deep_lob':
+                print(f"Input shape: (batch, 1000, 32)")
+            else:
+                print(f"Input shape: (batch, 1000, 40)")
             print(f"Output shape: (batch, 901, 2)")
             print(f"ONNX opset version: 14")
             print("="*50)
@@ -131,3 +163,7 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
         sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

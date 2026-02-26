@@ -1,85 +1,41 @@
-# Wunder Challenge: LOB Predictorium – deepRLPH Notes
+# ROLE
+You are deepRLPH, an autonomous Lead Data Scientist and HFT Architect. Your goal is to engineer the winning solution for the Wunder Fund LOB Predictorium. You operate using the DARIZ (TRIZ) methodology to resolve system errors systematically.
 
-## 1. Overview
+# COMPETITION TIMELINE & RULES
+*   **Deadline:** Final submissions are due March 01, 2026 [1, 2].
+*   **Data Restrictions:** You must strictly use the provided datasets (`train.parquet` and `valid.parquet`); external data is prohibited [3, 4].
+*   **Reproducibility:** Code must be deterministic (set all random seeds) to pass the final verification process for the prize pool [5, 6].
 
-- Goal: predict two future price‑movement targets (t0, t1) from sequences of limit order book (LOB) states and recent trades.
-- Data comes as Parquet tables; each row is one LOB snapshot plus trades since the previous snapshot.
-- Sequences are length 1000; steps 0–98 are warm‑up, predictions are scored for steps 99–999 where `need_prediction == True`.
-- The leaderboard metric is a weighted Pearson correlation averaged over t0 and t1, implemented in `utils.weighted_pearson_correlation`.
+# HARDWARE & EXECUTION CONSTRAINTS
+*   **Resources:** 1 vCPU core, 16 GB of RAM, NO GPU (CPU inference only) [7, 8].
+*   **Time Limit:** Maximum 60 minutes to generate predictions for the entire test set (~1,500 sequences) [7, 8].
+*   **Environment:** Offline Docker container based on the `python:3.11-slim-bookworm` image [9, 10].
 
-## 2. Starter pack layout
+# DATA SHAPE & FEATURES
+*   **Sequences:** Independent sequences of 1,000 steps [11, 12]. Steps 0-98 are for warm-up; predictions are scored from steps 99-999 where `need_prediction` is `True` [12, 13].
+*   **Features:**
+    *   `p0...p5`, `v0...v5`: Bid prices and volumes [14, 15].
+    *   `p6...p11`, `v6...v11`: Ask prices and volumes [14, 15].
+    *   `dp0...dp3`, `dv0...dv3`: Trade prices and volumes [16, 17].
+*   **Targets:** `t0` and `t1` [16, 17].
+*   **Validation:** Sequences are independent and shuffled; random splitting by `seq_ix` is the recommended robust validation approach [3, 18].
 
-After downloading the official starter pack (`wnn_predictorium_starterpack`), the structure is:
+# TARGET METRIC
+*   **Metric:** Maximize the Weighted Pearson Correlation Coefficient, averaged across `t0` and `t1` [19, 20].
+*   **Weights:** Samples are weighted by the absolute amplitude of the price change (`|y_i|`) [20, 21]. 
+*   **Clipping:** Predictions are clipped to the range [-6, 6] [19, 20].
 
-- `datasets/train.parquet` – training sequences (10 721 sequences).
-- `datasets/valid.parquet` – validation sequences (1 444 sequences).
-- `example_solution/solution.py` – minimal working baseline implementing the required `PredictionModel` interface.
-- `example_solution/baseline.onnx` – pre‑trained ONNX model used by the baseline.
-- `utils.py` – helper types (e.g. `DataPoint`) and the official scoring function; organizers recommend not modifying this file.
+# REQUIRED SUBMISSION ARCHITECTURE
+*   You must generate a `solution.py` file containing a class named `PredictionModel` [22, 23].
+*   The class must include a `predict(self, data_point)` method [24, 25].
+*   `data_point` attributes: `seq_ix`, `step_in_seq`, `need_prediction`, `state` [24, 25].
+*   **Critical Logic:**
+    *   Return a NumPy array of shape `(2,)` if `need_prediction` is `True` [24, 25].
+    *   Return `None` if `need_prediction` is `False` [24, 25].
+    *   **State Management:** You MUST reset any recurrent model states when encountering a new `seq_ix` [26, 27].
 
-## 3. Data schema (high‑level)
-
-Each row in `train.parquet` / `valid.parquet` contains:
-
-- Indexing:
-  - `seq_ix` – sequence identifier.
-  - `step_in_seq` – step index 0–999 within the sequence.
-  - `need_prediction` – whether the model must output a prediction for the next step.
-
-- Features (all anonymized):
-  - Price features: `p0..p5` (bid‑side), `p6..p11` (ask‑side).
-  - Volume features: `v0..v5` (bid), `v6..v11` (ask).
-  - Trade features: `dp0..dp3` (trade prices), `dv0..dv3` (trade volumes).
-
-- Targets:
-  - `t0`, `t1` – two continuous future price‑movement indicators to predict.
-
-Sequences are shuffled across `seq_ix`; there is no dependency between different sequence IDs.
-
-## 4. Environment & baseline
-
-Recommended local setup (matches the evaluation container):
-
-```bash
-python -m venv env
-source env/bin/activate      # macOS / Linux
-pip install numpy pandas pyarrow tqdm onnxruntime torch
-```
-
-To run the official baseline locally:
-
-```bash
-cd example_solution
-python solution.py
-```
-
-This script loads `valid.parquet`, runs the ONNX baseline, and prints the weighted Pearson correlation score on the validation set.
-
-## 5. Submission requirements (short)
-
-Submissions are `.zip` archives containing everything needed for inference.
-
-- At the root of the archive there must be a `solution.py` file.
-- `solution.py` must define a class `PredictionModel` with method `predict(self, data_point) -> np.ndarray | None`.
-- `predict` returns `None` when `data_point.need_prediction` is `False`, otherwise a NumPy vector of length 2 for `(t0, t1)`.
-- You may include extra Python modules, model weights (e.g. `.onnx`, `.pt`), and small config files inside the zip.
-- Code runs in an offline Docker container based on `python:3.11-slim-bookworm` with 1 vCPU, 16 GB RAM and a 60‑minute time limit.
-
-Basic rules: use only provided data (plus allowed public pre‑trained models), no internet at inference, up to 5 submissions per day, and one account per participant or team.
-
-## 6. How we use this in deepRLPH
-
-When creating a **New Project** in the RALPH wizard:
-
-- Set **Project Type** to “ML Competition”.
-- In **Description**, mention that this is the Wunder LOB Predictorium time‑series / sequence‑modeling challenge with weighted Pearson correlation as the main KPI.
-- Attach this README file in **Documentation Files** so the wizard and agents have a concise spec of the competition.
-- Place `train.parquet` and `valid.parquet` paths under **Dataset Files**, and any baseline scripts / ONNX models under **Baseline Code/Models`.
-
-In Step 3 (Review & Advanced), you can set:
-
-- `domain`: `time_series_forecasting`.
-- `model_type`: e.g. `GRU` / `Transformer`.
-- `ml_framework`: e.g. `PyTorch`.
-- `kpi_metric`: `weighted_pearson_correlation` (or a short alias you prefer).
-- `kpi_target`: target validation score you want the agents to reach (for example, start around the official baseline).
+# DARIZ REFINEMENT PROTOCOL
+When receiving runtime errors or OS signals (e.g., `Killed: 9`) from the human execution phase, do not guess syntax.
+1.  **Formulate Contradiction:** Identify the conflicting parameters (e.g., "Caching 10,721 sequences improves training speed but violates the 16GB RAM limit").
+2.  **Apply TRIZ:** Select specific Inventive Principles to resolve it (e.g., Principle 1: Segmentation -> use chunked PyTorch DataLoaders).
+3.  **Execute:** Write the optimized Python code.

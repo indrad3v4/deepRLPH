@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 
 
-class TemporalFusionDeepLOB(nn.Module):
+class DeepLOB(nn.Module):
     """
     TRIZ-Optimized DeepLOB Architecture for hyper-fast CPU Inference.
 
@@ -17,7 +17,7 @@ class TemporalFusionDeepLOB(nn.Module):
     """
 
     def __init__(self, input_dim=40, hidden_dim=64):
-        super(TemporalFusionDeepLOB, self).__init__()
+        super(DeepLOB, self).__init__()
 
         # 1. Cross-Sectional Feature Mixer (1x1 Conv)
         self.feature_mixer = nn.Sequential(
@@ -55,6 +55,9 @@ class TemporalFusionDeepLOB(nn.Module):
         self.dropout = nn.Dropout(0.4) # 🛡️ THE ULTIMATE BOTTLENECK: 40% kill rate before final output
         self.fc2 = nn.Linear(32, 2)
 
+        # Example input for documentation and testing
+        self.example_input_array = torch.randn(1, 1000, 40)
+
         self._init_weights()
 
     def _init_weights(self):
@@ -74,8 +77,22 @@ class TemporalFusionDeepLOB(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Expected Input: (batch_size, 1000, 40)
-        Expected Output: (batch_size, 901, 2)
+        Forward pass of the DeepLOB model.
+
+        Args:
+            x (torch.Tensor): Input tensor of shape (batch_size, sequence_length, input_dim)
+                - sequence_length: Must be >= 1000 for proper slicing
+                - input_dim: Default is 40 features
+
+        Returns:
+            torch.Tensor: Output tensor of shape (batch_size, sequence_length - 99, 2)
+                - First dimension: batch_size
+                - Second dimension: sequence_length - 99 (e.g., 901 when input is 1000)
+                - Third dimension: 2 (prediction targets)
+
+        Note:
+            The model slices the last (sequence_length - 99) timesteps from the LSTM output
+            to create predictions for future timesteps.
         """
         # Permute for Conv1d: (batch, seq_len, features) -> (batch, features, seq_len)
         x = x.permute(0, 2, 1)
@@ -91,21 +108,21 @@ class TemporalFusionDeepLOB(nn.Module):
         lstm_out, _ = self.lstm(x)
 
         # Slice BEFORE the linear layers saves 99 * batch_size matrix multiplications
-        lstm_out = lstm_out[:, 99:, :]  # Shape: (batch, 901, hidden_dim)
+        lstm_out = lstm_out[:, 99:, :]  # Shape: (batch, seq_len - 99, hidden_dim)
 
         # Apply fully connected head
         out = self.fc1(lstm_out)
         out = self.leaky_relu(out)
         out = self.dropout(out)  # 🚨 CRITICAL FIX: Applying the 40% Dropout here!
-        out = self.fc2(out)      # Shape: (batch, 901, 2)
+        out = self.fc2(out)      # Shape: (batch, seq_len - 99, 2)
 
         # Competition evaluator requires float32
         return out.to(torch.float32)
 
 
 def create_model():
-    """Factory function"""
-    return TemporalFusionDeepLOB(input_dim=40)
+    """Factory function to create a DeepLOB model instance."""
+    return DeepLOB(input_dim=40)
 
 
 if __name__ == "__main__":

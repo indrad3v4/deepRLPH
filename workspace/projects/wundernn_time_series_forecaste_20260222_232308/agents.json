@@ -445,6 +445,42 @@
             "metric_value": null,
             "reward": 1.0
           }
+        },
+        {
+          "summary": "Story ML-001 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ML-001",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ML-006 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ML-006",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ML-001 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ML-001",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ML-001 succeeded by agent_1, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ML-001",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
         }
       ],
       "notes": [
@@ -495,7 +531,135 @@
         "Story ITEM-005 succeeded by agent_1, reward=1.0000, metric=None",
         "Story ITEM-006 succeeded by agent_1, reward=1.0000, metric=None",
         "Story ITEM-007 succeeded by agent_1, reward=1.0000, metric=None",
-        "Story ITEM-008 succeeded by agent_1, reward=1.0000, metric=None"
+        "Story ITEM-008 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ML-001 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ML-006 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ML-001 succeeded by agent_1, reward=1.0000, metric=None",
+        "Story ML-001 succeeded by agent_1, reward=1.0000, metric=None"
+      ]
+    },
+    "agent_2": {
+      "id": "agent_2",
+      "name": "Agent 2",
+      "role": "Generalist implementation agent",
+      "expertise": [
+        "backend",
+        "tests",
+        "refactoring"
+      ],
+      "target_files": [
+        "src/"
+      ],
+      "metric_focus": "weighted_pearson",
+      "kpi_history": [
+        {
+          "summary": "Story ML-002 succeeded by agent_2, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ML-002",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ML-005 succeeded by agent_2, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ML-005",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ML-002 succeeded by agent_2, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ML-002",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ML-002 succeeded by agent_2, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ML-002",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        }
+      ],
+      "notes": [
+        "Story ML-002 succeeded by agent_2, reward=1.0000, metric=None",
+        "Story ML-005 succeeded by agent_2, reward=1.0000, metric=None",
+        "Story ML-002 succeeded by agent_2, reward=1.0000, metric=None",
+        "Story ML-002 succeeded by agent_2, reward=1.0000, metric=None"
+      ]
+    },
+    "agent_3": {
+      "id": "agent_3",
+      "name": "Agent 3",
+      "role": "Generalist implementation agent",
+      "expertise": [
+        "backend",
+        "tests",
+        "refactoring"
+      ],
+      "target_files": [
+        "src/"
+      ],
+      "metric_focus": "weighted_pearson",
+      "kpi_history": [
+        {
+          "summary": "Story ML-003 succeeded by agent_3, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ML-003",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ML-003 failed by agent_3, reward=-1.0000, error=Command failed with code 1:\n",
+          "metrics": {
+            "story_id": "ML-003",
+            "status": "failed",
+            "metric_value": null,
+            "reward": -1.0
+          }
+        }
+      ],
+      "notes": [
+        "Story ML-003 succeeded by agent_3, reward=1.0000, metric=None",
+        "Story ML-003 failed by agent_3, reward=-1.0000, error=Command failed with code 1:\n"
+      ]
+    },
+    "agent_4": {
+      "id": "agent_4",
+      "name": "Agent 4",
+      "role": "Generalist implementation agent",
+      "expertise": [
+        "backend",
+        "tests",
+        "refactoring"
+      ],
+      "target_files": [
+        "src/"
+      ],
+      "metric_focus": "weighted_pearson",
+      "kpi_history": [
+        {
+          "summary": "Story ML-004 succeeded by agent_4, reward=1.0000, metric=None",
+          "metrics": {
+            "story_id": "ML-004",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        }
+      ],
+      "notes": [
+        "Story ML-004 succeeded by agent_4, reward=1.0000, metric=None"
       ]
     }
   }

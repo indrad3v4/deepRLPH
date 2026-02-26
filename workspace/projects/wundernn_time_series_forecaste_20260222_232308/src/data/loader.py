@@ -11,9 +11,14 @@ from typing import Tuple, List, Dict, Any
 import warnings
 import hashlib
 import glob
+import logging
 
 # Suppress pandas/numpy warnings in production to keep logs clean
 warnings.filterwarnings('ignore')
+
+# Configure logging
+logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 
 class OFIDataLoader(Dataset):
@@ -62,13 +67,36 @@ class OFIDataLoader(Dataset):
 
             if os.path.exists(cache_file):
                 print(f"⚡ [CACHE HIT] DNA match '{file_hash}'. Loading {split_name} sequences instantly...")
-                self.sequences = torch.load(cache_file)
+                try:
+                    self.sequences = torch.load(cache_file)
+                except (EOFError, RuntimeError, Exception) as e:
+                    logger.warning(f"Cache file {cache_file} is corrupted (error: {e}). Deleting and regenerating...")
+                    try:
+                        os.remove(cache_file)
+                        logger.warning(f"Successfully deleted corrupted cache file: {cache_file}")
+                    except Exception as delete_error:
+                        logger.warning(f"Failed to delete corrupted cache file {cache_file}: {delete_error}")
+                    
+                    # Fall back to regenerating sequences from raw data
+                    print(f"🐢 [CACHE CORRUPTED] Loading and engineering sequences from raw data. This will take a while...")
+                    metadata_df = pd.read_parquet(parquet_path, columns=['seq_ix'])
+                    self.unique_seq_ids = np.unique(metadata_df['seq_ix'].values)
+                    if max_sequences < len(self.unique_seq_ids):
+                        self.unique_seq_ids = self.unique_seq_ids[:max_sequences]
+
+                    self.sequences = self._load_sequences()
+
+                    print(f"💾 Saving engineered sequences to {cache_file} for instant loading next time...")
+                    torch.save(self.sequences, cache_file)
             else:
                 # Cleanup obsolete caches
                 old_caches = glob.glob(os.path.join(cache_dir, f"cache_{split_name}_{max_sequences}_*.pt"))
                 for old_file in old_caches:
-                    os.remove(old_file)
-                    print(f"🗑️ [CACHE CLEANUP] Deleted obsolete memory: {os.path.basename(old_file)}")
+                    try:
+                        os.remove(old_file)
+                        print(f"🗑️ [CACHE CLEANUP] Deleted obsolete memory: {os.path.basename(old_file)}")
+                    except Exception as e:
+                        logger.warning(f"Failed to delete old cache file {old_file}: {e}")
 
                 print(f"🐢 [CACHE MISS] Loading and engineering sequences. This will take a while...")
                 metadata_df = pd.read_parquet(parquet_path, columns=['seq_ix'])

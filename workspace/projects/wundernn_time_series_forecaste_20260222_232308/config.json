@@ -28,8 +28,7 @@
       "onnx"
     ],
     "doc_files": [
-      "/Users/fedorvabisevic/Documents/Programms/deepRLPH/workspace/projects/README_wunder_predictorium.md",
-      "/Users/fedorvabisevic/Documents/Programms/deepRLPH/workspace/projects/DeepLOB_Architecture_Guide_2026.md"
+      "/Users/fedorvabisevic/Documents/Programms/deepRLPH/workspace/projects/README_wunder_predictorium.md"
     ],
     "dataset_files": [
       "/Users/fedorvabisevic/Documents/Programms/deepRLPH/workspace/projects/wundernn_time_series_forecaste_20260222_232308/data/raw/valid.parquet",
