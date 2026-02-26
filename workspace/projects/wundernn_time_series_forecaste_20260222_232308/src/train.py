@@ -8,7 +8,6 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 import time
-import json
 from pathlib import Path
 import warnings
 
@@ -26,7 +25,8 @@ class TrainingPipeline:
     Resilient Training Pipeline for DeepLOB.
 
     TRIZ Principle 9: Prior Counteraction.
-    It catches infinite/NaN gradients BEFORE they poison the network.
+    It catches infinite/NaN gradients BEFORE they poison the network,
+    and accurately aligns temporal sequences to prevent chronological leakage.
     """
 
     def __init__(
@@ -36,9 +36,9 @@ class TrainingPipeline:
             val_loader: DataLoader,
             device: str = 'cpu',
             learning_rate: float = 1e-3,
-            weight_decay: float = 1e-4,
-            max_epochs: int = 5,
-            patience: int = 2,
+            weight_decay: float = 1e-2,
+            max_epochs: int = 10,
+            patience: int = 3,
             gradient_clip: float = 6.0
     ):
         self.model = model.to(device)
@@ -57,7 +57,7 @@ class TrainingPipeline:
         # Loss function
         self.criterion = WeightedPearsonCorrelationLoss(reduction='mean')
 
-        # Optimizer & Scheduler
+        # Optimizer & Scheduler (Strong L2 Regularization applied here)
         self.optimizer = optim.AdamW(self.model.parameters(), lr=learning_rate, weight_decay=weight_decay)
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
             self.optimizer, mode='min', factor=0.5, patience=1, verbose=True, min_lr=1e-6
@@ -83,20 +83,21 @@ class TrainingPipeline:
             self.optimizer.zero_grad()
             predictions = self.model(features)
 
-            # Align sequences if there's a slight length mismatch
+            # ==========================================
+            # 🚨 THE TRUE ALIGNMENT FIX (Separation in Space/Time)
+            # ==========================================
+            # We must align the ends of the sequences (-min_len:), not the beginnings!
+            # This prevents the model from using Time 99 features to predict Time 0 targets.
             if predictions.shape[1] != targets.shape[1]:
                 min_len = min(predictions.shape[1], targets.shape[1])
-                predictions = predictions[:, :min_len, :]
-                targets = targets[:, :min_len, :]
+                predictions = predictions[:, -min_len:, :]
+                targets = targets[:, -min_len:, :]
 
             loss = self.criterion(predictions, targets)
 
-            # ==========================================
             # TRIZ Principle 9: The Poison Catcher
-            # ==========================================
             if torch.isnan(loss) or torch.isinf(loss):
-                print(
-                    f"  [🛡️ SHIELD ACTIVATED] Batch {batch_idx + 1} yielded NaN/Inf loss. Skipping to protect weights.")
+                print(f"  [🛡️ SHIELD ACTIVATED] Batch {batch_idx + 1} yielded NaN/Inf loss. Skipping to protect weights.")
                 continue
 
             loss.backward()
@@ -110,8 +111,7 @@ class TrainingPipeline:
 
             if (batch_idx + 1) % 50 == 0:
                 batch_pearson = 1.0 - loss.item()
-                print(
-                    f"  Batch {batch_idx + 1}/{len(self.train_loader)} | Loss: {loss.item():.4f} | Pearson approx: {batch_pearson:.4f}")
+                print(f"  Batch {batch_idx + 1}/{len(self.train_loader)} | Loss: {loss.item():.4f} | Pearson approx: {batch_pearson:.4f}")
 
         return total_loss / max(valid_batches, 1)
 
@@ -127,10 +127,13 @@ class TrainingPipeline:
 
                 predictions = self.model(features)
 
+                # ==========================================
+                # 🚨 THE TRUE ALIGNMENT FIX (Validation)
+                # ==========================================
                 if predictions.shape[1] != targets.shape[1]:
                     min_len = min(predictions.shape[1], targets.shape[1])
-                    predictions = predictions[:, :min_len, :]
-                    targets = targets[:, :min_len, :]
+                    predictions = predictions[:, -min_len:, :]
+                    targets = targets[:, -min_len:, :]
 
                 loss = self.criterion(predictions, targets)
 
@@ -154,7 +157,7 @@ class TrainingPipeline:
 
     def train(self):
         print("\n" + "=" * 60)
-        print("🚀 Starting Training: Unleashing the Beast")
+        print("🚀 Starting Training: Unleashing the Beast (Anti-Overfit Edition)")
         print("=" * 60)
 
         no_improvement_count = 0
@@ -183,8 +186,7 @@ class TrainingPipeline:
                 no_improvement_count += 1
 
             epoch_time = time.time() - epoch_start
-            print(
-                f"  Summary -> Train Pearson: {train_pearson:.4f} | Val Pearson: {val_pearson:.4f} | Time: {epoch_time:.1f}s")
+            print(f"  Summary -> Train Pearson: {train_pearson:.4f} | Val Pearson: {val_pearson:.4f} | Time: {epoch_time:.1f}s")
 
             if no_improvement_count >= self.patience:
                 print(f"\n🛑 Early stopping triggered. No improvement for {self.patience} epochs.")
@@ -192,22 +194,21 @@ class TrainingPipeline:
 
         best_pearson = 1.0 - self.history['best_val_loss']
         print("\n" + "=" * 60)
-        print(
-            f"🎯 Training Complete. 🏆 Best Validation Pearson: {best_pearson:.4f} (epoch {self.history['best_epoch']})")
+        print(f"🎯 Training Complete. 🏆 Best Validation Pearson: {best_pearson:.4f} (epoch {self.history['best_epoch']})")
         print("=" * 60)
 
 
 def main():
-    # --- FEED THE BEAST CONFIGURATION ---
+    # --- ANTI-OVERFIT CONFIGURATION (Mac-Safe Edition) ---
     config = {
-        'batch_size': 16,
+        'batch_size': 32,             # Stable gradient estimation
         'sequence_length': 1000,
-        'learning_rate': 0.001,
-        'weight_decay': 1e-4,
-        'max_epochs': 5,
-        'patience': 2,
+        'learning_rate': 0.0005,      # Lowered to prevent instant memorization
+        'weight_decay': 1e-2,         # 100x STRONGER L2 Penalty!
+        'max_epochs': 10,             # Longer training curve
+        'patience': 3,                # Wait longer before stopping
         'gradient_clip': 6.0,
-        'max_sequences': 3000,
+        'max_sequences': 20000,       # 7x more data! Safely consumes ~3.2GB RAM on an old Mac
         'test_mode': False
     }
 

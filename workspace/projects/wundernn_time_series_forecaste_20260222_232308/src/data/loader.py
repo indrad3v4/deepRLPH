@@ -9,6 +9,8 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from typing import Tuple, List, Dict, Any
 import warnings
+import hashlib
+import glob
 
 # Suppress pandas/numpy warnings in production to keep logs clean
 warnings.filterwarnings('ignore')
@@ -18,15 +20,6 @@ class OFIDataLoader(Dataset):
     """
     Data-Centric Loader for Level-2 LOB & Tape Data.
     Acts as an Iron Shield against data toxicity.
-
-    Produces exactly 40 sanitized, highly stationary Alpha Features:
-    - [0:12]  12x Normalized LOB Prices (p0-p11)
-    - [12:24] 12x Log-Scaled LOB Volumes (v0-v11)
-    - [24:28] 4x Normalized Deal Prices (dp0-dp3) -> (Stationary execution prices)
-    - [28:32] 4x Log-Scaled Deal Volumes (dv0-dv3)
-    - [32:38] 6x Order Flow Imbalance (Log Bid Vol - Log Ask Vol)
-    - [38]    1x Aggressive Buy Imbalance
-    - [39]    1x Aggressive Sell Imbalance
     """
 
     def __init__(self, parquet_path: str, sequence_length: int = 1000,
@@ -53,13 +46,40 @@ class OFIDataLoader(Dataset):
             self.sequences = self._create_synthetic_sequences()
         else:
             print(f"Loading metadata from {parquet_path}...")
-            metadata_df = pd.read_parquet(parquet_path, columns=['seq_ix'])
-            self.unique_seq_ids = np.unique(metadata_df['seq_ix'].values)
-            if max_sequences < len(self.unique_seq_ids):
-                self.unique_seq_ids = self.unique_seq_ids[:max_sequences]
+            # ==========================================
+            # TRIZ PRINCIPLE 25 & 34: SELF-AWARE DNA CACHING
+            # ==========================================
+            split_name = "train" if shuffle else "valid"
+            cache_dir = "data/processed"
+            os.makedirs(cache_dir, exist_ok=True)
 
-            print(f"Loading and engineering {len(self.unique_seq_ids)} sequences...")
-            self.sequences = self._load_sequences()
+            # Calculate DNA of this file
+            current_file_path = os.path.abspath(__file__)
+            with open(current_file_path, "rb") as f:
+                file_hash = hashlib.md5(f.read()).hexdigest()[:8]
+
+            cache_file = os.path.join(cache_dir, f"cache_{split_name}_{max_sequences}_{file_hash}.pt")
+
+            if os.path.exists(cache_file):
+                print(f"⚡ [CACHE HIT] DNA match '{file_hash}'. Loading {split_name} sequences instantly...")
+                self.sequences = torch.load(cache_file)
+            else:
+                # Cleanup obsolete caches
+                old_caches = glob.glob(os.path.join(cache_dir, f"cache_{split_name}_{max_sequences}_*.pt"))
+                for old_file in old_caches:
+                    os.remove(old_file)
+                    print(f"🗑️ [CACHE CLEANUP] Deleted obsolete memory: {os.path.basename(old_file)}")
+
+                print(f"🐢 [CACHE MISS] Loading and engineering sequences. This will take a while...")
+                metadata_df = pd.read_parquet(parquet_path, columns=['seq_ix'])
+                self.unique_seq_ids = np.unique(metadata_df['seq_ix'].values)
+                if max_sequences < len(self.unique_seq_ids):
+                    self.unique_seq_ids = self.unique_seq_ids[:max_sequences]
+
+                self.sequences = self._load_sequences()
+
+                print(f"💾 Saving engineered sequences to {cache_file} for instant loading next time...")
+                torch.save(self.sequences, cache_file)
 
         print(f"Successfully loaded {len(self.sequences)} valid sequence windows.")
         self.dataloader = self._create_dataloader()
@@ -74,7 +94,6 @@ class OFIDataLoader(Dataset):
         sequences = []
         for seq_id in self.unique_seq_ids:
             try:
-                # Use Pandas engine for safe reading (prevents PyArrow filter crashes)
                 df = pd.read_parquet(
                     self.parquet_path, filters=[('seq_ix', '=', seq_id)],
                     columns=self.metadata_cols + self.price_cols + self.volume_cols +
@@ -84,34 +103,37 @@ class OFIDataLoader(Dataset):
                 print(f"Warning: Skipping seq_ix {seq_id} due to read error: {e}")
                 continue
 
-            if len(df) < self.sequence_length:
+            # 🚨 THE FUTURE SHIFT REQUIREMENT: We need len + 1 to shift targets
+            if len(df) < self.sequence_length + 1:
                 continue
 
-            # Truncate overly long sequences to save RAM
-            max_rows = self.sequence_length * 3
+            max_rows = (self.sequence_length * 3) + 1
             if len(df) > max_rows:
                 df = df.iloc[:max_rows]
 
-            for start_idx in range(0, len(df) - self.sequence_length + 1, self.sequence_length):
-                window = df.iloc[start_idx:start_idx + self.sequence_length]
+            # 🚨 THE FUTURE SHIFT 🚨
+            # We iterate requiring a window of (sequence_length + 1)
+            for start_idx in range(0, len(df) - self.sequence_length, self.sequence_length):
+                window = df.iloc[start_idx:start_idx + self.sequence_length + 1]
 
-                # Extract and explicitly convert to float32 to prevent memory bloat
-                features = window[
+                # Features take row 0 to 999
+                features_raw = window.iloc[:-1][
                     self.price_cols + self.volume_cols + self.deal_price_cols + self.deal_volume_cols].values.astype(
                     np.float32)
-                targets = window[self.target_cols].values.astype(np.float32)
+
+                # Targets take row 1 to 1000 (The Future)
+                targets = window.iloc[1:][self.target_cols].values.astype(np.float32)
 
                 # ==========================================
                 # SCRUBBER 1: Kill NaNs from raw data
                 # ==========================================
-                features = np.nan_to_num(features, nan=0.0, posinf=0.0, neginf=0.0)
+                features_raw = np.nan_to_num(features_raw, nan=0.0, posinf=0.0, neginf=0.0)
                 targets = np.nan_to_num(targets, nan=0.0, posinf=0.0, neginf=0.0)
 
-                # Slice matrices
-                prices = features[:, :12]
-                volumes = np.clip(features[:, 12:24], 0, None)  # Physics constraint: Volume cannot be negative
-                deal_prices = features[:, 24:28]
-                deal_volumes = np.clip(features[:, 28:32], 0, None)
+                prices = features_raw[:, :12]
+                volumes = np.clip(features_raw[:, 12:24], 0, None)
+                deal_prices = features_raw[:, 24:28]
+                deal_volumes = np.clip(features_raw[:, 28:32], 0, None)
 
                 # ==========================================
                 # MID-PRICE CALCULATION
@@ -120,36 +142,24 @@ class OFIDataLoader(Dataset):
                 best_ask = prices[:, 6]
                 mid_prices = (best_bid + best_ask) / 2.0
 
-                # Physics constraint: Mid-price of 0 causes division by zero. Fallback to 1.0.
                 mid_prices[mid_prices == 0] = 1.0
                 mid_exp = mid_prices[:, np.newaxis]
-                eps = 1e-5  # Mathematical epsilon to prevent zero-division
+                eps = 1e-5
 
                 # ==========================================
                 # STABILIZED FEATURE ENGINEERING
                 # ==========================================
-                # 1. Normalize Book Prices (Stationary scaling)
                 norm_prices = (prices - mid_exp) / (mid_exp + eps)
 
-                # 2. Fix: Stabilized Deal Price Normalization
-                # We calculate for the whole (1000, 4) matrix.
-                # NumPy broadcasts the (1000, 1) mid_exp across all 4 columns perfectly.
                 norm_deal_prices = (deal_prices - mid_exp) / (mid_exp + eps)
-
-                # 3. Apply the mask AFTER the math to reset non-trades to 0.0
-                # This preserves the (1000, 4) shape and avoids the IndexError.
                 trade_mask = deal_prices > 0
                 norm_deal_prices[~trade_mask] = 0.0
 
-                # 4. Log-Scale Volumes (Stabilizes gradient variance)
                 log_volumes = np.log1p(volumes)
                 log_deal_volumes = np.log1p(deal_volumes)
 
-                # 5. Order Flow Imbalance (OFI)
                 ofi_features = log_volumes[:, :6] - log_volumes[:, 6:12]
 
-                # 6. Aggressive Trade Flow Imbalance
-                # Using broadcasting (np.newaxis) to compare (1000, 4) vs (1000, 1)
                 is_buy = (deal_prices >= best_ask[:, np.newaxis]) & trade_mask
                 is_sell = (deal_prices <= best_bid[:, np.newaxis]) & trade_mask
                 buy_imbalance = np.sum(log_deal_volumes * is_buy, axis=1, keepdims=True)
@@ -159,17 +169,10 @@ class OFIDataLoader(Dataset):
                 # FINAL ASSEMBLY & IRON SHIELD
                 # ==========================================
                 combined = np.concatenate([
-                    norm_prices,  # 12
-                    log_volumes,  # 12
-                    norm_deal_prices,  # 4
-                    log_deal_volumes,  # 4
-                    ofi_features,  # 6
-                    buy_imbalance,  # 1
-                    sell_imbalance  # 1
+                    norm_prices, log_volumes, norm_deal_prices,
+                    log_deal_volumes, ofi_features, buy_imbalance, sell_imbalance
                 ], axis=1).astype(np.float32)
 
-                # SCRUBBER 2 (THE IRON SHIELD): Force all data into a safe neural network band
-                # This guarantees gradient explosions are physically impossible.
                 combined = np.nan_to_num(combined, nan=0.0, posinf=0.0, neginf=0.0)
                 combined = np.clip(combined, -20.0, 20.0)
 

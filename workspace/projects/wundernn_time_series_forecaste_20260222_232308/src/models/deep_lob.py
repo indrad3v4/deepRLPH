@@ -11,28 +11,20 @@ class TemporalFusionDeepLOB(nn.Module):
     """
     TRIZ-Optimized DeepLOB Architecture for hyper-fast CPU Inference.
 
-    Cures the following pains:
-    1. The "Batch=1 Crash": Uses GroupNorm instead of BatchNorm to ensure
-       production prerun.py and evaluation servers never crash.
-    2. The "CPU Asphyxiation": Uses a 1-Layer Unidirectional LSTM and slices
-       the tensor BEFORE the linear layers, saving ~10% of total compute.
-    3. The "Cross-Sectional Blindness": Uses a 1x1 Conv to instantly map
-       all 40 engineered features into a unified spatial representation.
-
-    Input: (batch_size, 1000, 40) -> Matches the Iron Shield loader
-    Output: (batch_size, 901, 2)
+    ANTI-OVERFITTING EDITION:
+    Combats the 1.0000 -> 0.0270 Leaderboard drop by severely penalizing
+    memorization pathways using heavy Dropout layers.
     """
 
     def __init__(self, input_dim=40, hidden_dim=64):
         super(TemporalFusionDeepLOB, self).__init__()
 
         # 1. Cross-Sectional Feature Mixer (1x1 Conv)
-        # TRIZ Principle 17: Another Dimension. We learn the relationships between
-        # normalized prices, Log-OFI, and Imbalances BEFORE looking at time.
         self.feature_mixer = nn.Sequential(
             nn.Conv1d(in_channels=input_dim, out_channels=64, kernel_size=1),
-            nn.GroupNorm(8, 64),  # 8 groups, completely immune to batch_size=1 panics
+            nn.GroupNorm(8, 64),
             nn.LeakyReLU(0.1)
+            # No dropout here: we want pure spatial mixing first
         )
 
         # 2. Spatial Feature Extraction (Temporal CNNs)
@@ -40,15 +32,15 @@ class TemporalFusionDeepLOB(nn.Module):
             nn.Conv1d(in_channels=64, out_channels=64, kernel_size=5, padding=2),
             nn.GroupNorm(8, 64),
             nn.LeakyReLU(0.1),
+            nn.Dropout(0.3),  # 🛡️ THE SHIELD: Kills 30% of local temporal neurons
 
             nn.Conv1d(in_channels=64, out_channels=64, kernel_size=3, padding=1),
             nn.GroupNorm(8, 64),
-            nn.LeakyReLU(0.1)
+            nn.LeakyReLU(0.1),
+            nn.Dropout(0.3)   # 🛡️ THE SHIELD: Prevents specific tick memorization
         )
 
         # 3. Temporal Modeling
-        # 1-Layer Unidirectional LSTM. Bidirectional is twice as slow on CPUs and
-        # often leaks future bias in poor implementations. We keep it lean.
         self.lstm = nn.LSTM(
             input_size=64,
             hidden_size=hidden_dim,
@@ -60,6 +52,7 @@ class TemporalFusionDeepLOB(nn.Module):
         # 4. Prediction Head
         self.fc1 = nn.Linear(hidden_dim, 32)
         self.leaky_relu = nn.LeakyReLU(0.1)
+        self.dropout = nn.Dropout(0.4) # 🛡️ THE ULTIMATE BOTTLENECK: 40% kill rate before final output
         self.fc2 = nn.Linear(32, 2)
 
         self._init_weights()
@@ -97,15 +90,14 @@ class TemporalFusionDeepLOB(nn.Module):
         # Apply LSTM
         lstm_out, _ = self.lstm(x)
 
-        # TRIZ Principle 2: Taking out (Extract only what is needed)
-        # We only need predictions from step 99 to 999.
-        # Slicing BEFORE the linear layers saves 99 * batch_size matrix multiplications per forward pass.
+        # Slice BEFORE the linear layers saves 99 * batch_size matrix multiplications
         lstm_out = lstm_out[:, 99:, :]  # Shape: (batch, 901, hidden_dim)
 
         # Apply fully connected head
         out = self.fc1(lstm_out)
         out = self.leaky_relu(out)
-        out = self.fc2(out)  # Shape: (batch, 901, 2)
+        out = self.dropout(out)  # 🚨 CRITICAL FIX: Applying the 40% Dropout here!
+        out = self.fc2(out)      # Shape: (batch, 901, 2)
 
         # Competition evaluator requires float32
         return out.to(torch.float32)
