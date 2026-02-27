@@ -1,24 +1,47 @@
 import sys
 import os
 import subprocess
+from pathlib import Path
+
+# ==========================================
+# UNIVERSAL PATH INJECTOR (TRIZ Principle 1)
+# ==========================================
+# This ensures the 'src' directory is discoverable regardless of how
+# the script is launched (PyCharm, Terminal, or deepRLPH).
+current_file = Path(__file__).resolve()
+project_root = current_file.parent.parent  # Move up from src/ to project root
+
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
 import time
-from pathlib import Path
 import warnings
 import argparse
 
+# Suppress warnings for cleaner logs
 warnings.filterwarnings('ignore')
 
+# Import project modules
 from src.models.t_kan import create_model as create_t_kan
 from src.data.loader import OFIDataLoader
 from src.losses.weighted_pearson import WeightedPearsonCorrelationLoss
 
 
 class TrainingPipeline:
+    """
+    Resilient Training Pipeline for Time Series Forecasting.
+
+    Includes:
+    - Hybrid Loss (MSE + Pearson) for gradient stability.
+    - Early Stopping (5-epoch patience).
+    - Automated deployment to native PyTorch weights.
+    """
+
     def __init__(self, model, train_loader, val_loader, device='cpu', lr=3e-4, patience=5, max_epochs=50):
         self.model = model.to(device)
         self.train_loader = train_loader
@@ -29,7 +52,7 @@ class TrainingPipeline:
         self.best_val_pearson = -float('inf')
         self.no_improvement_count = 0
 
-        # TRIZ: Merging MSE for stability and Pearson for target metric
+        # TRIZ: Merging MSE for stability and Pearson for the competition target metric
         self.pearson_criterion = WeightedPearsonCorrelationLoss(reduction='mean')
         self.optimizer = optim.AdamW(self.model.parameters(), lr=lr, weight_decay=1e-2)
         self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=max_epochs)
@@ -42,17 +65,20 @@ class TrainingPipeline:
             self.optimizer.zero_grad()
             preds = self.model(features)
 
+            # Align temporal shift for causal consistency
             if preds.shape[1] != targets.shape[1]:
                 targets = targets[:, -preds.shape[1]:, :]
 
+            # Hybrid Loss: Anchor with MSE (Stability) + Pearson (Target Metric)
             p_loss = self.pearson_criterion(preds, targets)
             mse_loss = F.mse_loss(preds, targets)
-            loss = 0.5 * p_loss + 0.5 * mse_loss  # Hybrid Anchor
+            loss = 0.5 * p_loss + 0.5 * mse_loss
 
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), 5.0)
             self.optimizer.step()
             total_pearson_loss += p_loss.item()
+
         return 1.0 - (total_pearson_loss / len(self.train_loader))
 
     def validate(self):
@@ -62,7 +88,8 @@ class TrainingPipeline:
             for batch in self.val_loader:
                 f, t = batch['features'].to(self.device), batch['targets'].to(self.device)
                 p = self.model(f)
-                if p.shape[1] != t.shape[1]: t = t[:, -p.shape[1]:, :]
+                if p.shape[1] != t.shape[1]:
+                    t = t[:, -p.shape[1]:, :]
                 total_p_loss += self.pearson_criterion(p, t).item()
         return 1.0 - (total_p_loss / len(self.val_loader))
 
@@ -86,25 +113,28 @@ class TrainingPipeline:
                 print(f"  ⚠️ No improvement ({self.no_improvement_count}/{self.patience})")
 
             if self.no_improvement_count >= self.patience:
-                print(f"\n🛑 EARLY STOPPING: No progress for {self.patience} epochs.")
+                print(f"\n🛑 EARLY STOPPING: Plateau reached at {self.best_val_pearson:.4f}")
                 break
 
         self.deploy()
 
     def deploy(self):
         print("\n" + "=" * 50 + "\n📦 PACKAGING SUBMISSION (Native Mode)\n" + "=" * 50)
-        # 1. Load the absolute best weights
+        # Load the peak performance weights
         if os.path.exists("best_model.pt"):
             self.model.load_state_dict(torch.load("best_model.pt"))
             print("✅ Loaded best model weights.")
 
-        # 2. Prerun Test (Native model)
+        # Competition Prerun Logic
         if os.path.exists("prerun.py"):
             print("🧪 Executing prerun.py sanity check...")
             res = subprocess.run(["python", "prerun.py"], capture_output=True, text=True)
-            print("✅ Prerun Passed" if res.returncode == 0 else f"❌ Prerun Failed: {res.stderr}")
+            if res.returncode == 0:
+                print("✅ Prerun Passed")
+            else:
+                print(f"❌ Prerun Failed: {res.stderr}")
 
-        # 3. Final Packaging
+        # Packaging Submission
         if os.path.exists("scripts/make_submission.py"):
             print("🗜️ Creating submission.zip...")
             subprocess.run(["python", "scripts/make_submission.py", "."])
@@ -119,7 +149,7 @@ def main():
     train_file = 'data/raw/train.parquet'
     valid_file = 'data/raw/valid.parquet'
 
-    # Using 20,000 sequences for robust training [cite: 83]
+    # 20k max sequences as per robust training configuration
     train_ds = OFIDataLoader(train_file, 1000, 32, True, 'cpu', 20000, args.test_mode)
     val_ds = OFIDataLoader(valid_file, 1000, 32, False, 'cpu', 5000, args.test_mode)
 

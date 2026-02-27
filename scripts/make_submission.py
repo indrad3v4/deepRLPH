@@ -1,113 +1,72 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
-make_submission.py - BE-007.2: Automated Submission Packager
-
-Creates competition submission.zip with:
-- solution.py
-- models/final/model.onnx
-- Any other required files
-
-Validates before packaging and tests the zip contents.
+Submission packaging script for ITEM-008: Strict Packaging (JIT Edition)
+Creates submissions/submission.zip with exactly 3 files in flat structure.
 """
 
 import sys
-import logging
+import os
 import zipfile
 import tempfile
 import shutil
 from pathlib import Path
-from datetime import datetime
-from typing import List
-
-logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
-logger = logging.getLogger("SubmissionPackager")
 
 
-class SubmissionPackager:
-    """Strictly packages ONLY the 3 allowed files into a flat ZIP."""
+def create_submission():
+    """Create submission.zip with exactly 3 required files."""
 
-    def __init__(self, project_root: Path):
-        self.project_root = Path(project_root)
-        # STRICT WHITELIST - EXACTLY 3 FILES
-        self.required_files = [
-            "solution.py",
-            "utils.py",
-            "model_jit.pt"
-        ]
-        self.optional_files = []  # ABSOLUTELY NO OPTIONAL FILES ALLOWED
+    # REQUIRED: Synchronized with solution.py requirements
+    required_files = ['solution.py', 'utils.py', 'model_jit.pt']
 
-    def create_submission(self, output_name: str = None) -> str:
-        """
-        Create submission zip file enforcing flat structure.
-        """
-        logger.info("\n📦 Creating STRICT submission package...")
+    # Create submissions directory if it doesn't exist
+    submissions_dir = Path('submissions')
+    submissions_dir.mkdir(exist_ok=True)
 
-        if output_name is None:
-            output_name = "submission.zip"
+    # Output zip path
+    zip_path = submissions_dir / 'submission.zip'
 
-        submissions_dir = self.project_root / "submissions"
-        submissions_dir.mkdir(exist_ok=True)
-        zip_path = submissions_dir / output_name
+    # Create a temporary directory for staging
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = Path(temp_dir)
 
-        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-            for file_path in self.required_files:
-                full_path = self.project_root / file_path
-                if not full_path.exists():
-                    logger.error(f"CRITICAL ERROR: Required file {file_path} is missing!")
-                    raise FileNotFoundError(f"Cannot package. Missing required file: {file_path}")
+        # Copy each required file to temporary directory
+        for file_name in required_files:
+            src_path = Path(file_name)
+            if not src_path.exists():
+                print(f"ERROR: Required file '{file_name}' not found!")
+                return False
 
-                # ENFORCE FLAT STRUCTURE
-                zf.write(full_path, arcname=full_path.name)
-                logger.info(f"  ✓ Added: {full_path.name} ({full_path.stat().st_size / 1024:.1f} KB)")
+            dst_path = temp_path / file_name
+            shutil.copy2(src_path, dst_path)
+            print(f"Added: {file_name}")
 
-        self._verify_zip(zip_path)
+        # Create zip file
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            # Add files from temp directory (flat structure)
+            for file_name in required_files:
+                file_path = temp_path / file_name
+                # Add to root of zip (no directory structure)
+                zipf.write(file_path, arcname=file_name)
 
-        zip_size_mb = zip_path.stat().st_size / (1024 * 1024)
-        logger.info(f"\n✅ Submission created: {zip_path.name} ({zip_size_mb:.2f} MB)")
-        logger.info(f"   Location: {zip_path}")
+        # Verify the zip contents
+        with zipfile.ZipFile(zip_path, 'r') as zipf:
+            zip_contents = zipf.namelist()
+            print(f"\nZip created: {zip_path}")
+            print(f"Files in zip ({len(zip_contents)}):")
+            for file in sorted(zip_contents):
+                print(f"  - {file}")
 
-        return str(zip_path)
+            if len(zip_contents) != 3:
+                print(f"ERROR: Expected 3 files, got {len(zip_contents)}!")
+                return False
 
-    def _validate(self) -> bool:
-        """Skip pre-validation; handled strictly during zipping."""
+        print("\n✓ Submission package created successfully!")
+        print(f"✓ Contains exactly 3 files: {', '.join(sorted(required_files))}")
         return True
-
-    def _verify_zip(self, zip_path: Path) -> None:
-        """Verify zip contains EXACTLY the required files, no directories."""
-        logger.info("\nVerifying zip contents...")
-        with zipfile.ZipFile(zip_path, 'r') as zf:
-            file_list = zf.namelist()
-            expected_names = sorted([Path(f).name for f in self.required_files])
-            actual_names = sorted(file_list)
-
-            if actual_names != expected_names:
-                raise ValueError(f"ZIP payload contaminated! Expected {expected_names}, got {actual_names}")
-            logger.info("  ✓ Zip payload structure verified successfully.")
-
-def main():
-    if len(sys.argv) < 2:
-        print("Usage: python make_submission.py <project_root> [output_name.zip]")
-        print("Example: python scripts/make_submission.py .")
-        print("Example: python scripts/make_submission.py . my_submission.zip")
-        sys.exit(1)
-    
-    project_root = Path(sys.argv[1])
-    output_name = sys.argv[2] if len(sys.argv) > 2 else None
-    
-    if not project_root.exists():
-        logger.error(f"Project root not found: {project_root}")
-        sys.exit(1)
-    
-    try:
-        packager = SubmissionPackager(project_root)
-        zip_path = packager.create_submission(output_name)
-        logger.info(f"\n🎉 Ready to submit: {zip_path}")
-        sys.exit(0)
-    except Exception as e:
-        logger.error(f"\n❌ Failed to create submission: {e}", exc_info=True)
-        sys.exit(1)
 
 
 if __name__ == "__main__":
-    main()
+    print("Creating submission package for ITEM-008: Strict Packaging")
+    print("=" * 60)
+    success = create_submission()
+    sys.exit(0 if success else 1)
