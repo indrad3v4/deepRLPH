@@ -1710,7 +1710,7 @@ I'll answer as a world-famous TRIZ Expert PhD in Applied Creative Problem Solvin
         backlog_size = self._get_backlog_size()
 
         # 🆕 Get current execution mode
-        mode = getattr(self, "exec_mode_var", tk.StringVar(value="parallel")).get()
+        mode = "council"  # 🚀 Bypassing Tkinter combobox cache
 
         try:
             requested = int(self.agents_var.get())

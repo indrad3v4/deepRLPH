@@ -240,3 +240,37 @@ r
 
 [2026-02-26 21:59:00] DL-007 - FAILED
 [agent=agent_1] Verification timed out (600s)
+
+[2026-02-27 00:28:56] ML-001 - SUCCESS
+[agent=agent_1] Verification passed. Metric: N/A
+
+[2026-02-27 00:45:20] ML-001 - SUCCESS
+[agent=agent_1] Verification passed. Metric: N/A
+
+[2026-02-27 00:56:12] ML-001 - FAILED
+[agent=agent_1] Command failed with code 1:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+AssertionError: CAUSALITY LEAK: Future data changed past predictions! Max diff: 0.6198549270629883
+
+
+[2026-02-27 01:07:49] ML-001 - FAILED
+[agent=agent_2] Command failed with code 1:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+AssertionError: CAUSALITY LEAK: Future data changed past predictions! Max diff: 0.9693877696990967
+
+
+[2026-02-27 01:18:19] ML-001 - FAILED
+[agent=agent_3] Command failed with code 1:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+AssertionError: CAUSALITY LEAK: Future data changed past predictions! Max diff: 0.8566687703132629
+
+
+[2026-02-27 01:30:08] ML-001 - FAILED
+[agent=agent_4] Command failed with code 1:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+AssertionError: CAUSALITY LEAK: Future data changed past predictions! Max diff: 0.6486371755599976
+
