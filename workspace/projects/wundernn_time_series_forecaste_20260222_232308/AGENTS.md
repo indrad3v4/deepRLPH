@@ -13,16 +13,16 @@ Each agent is a small, focused worker in the Ralph loop.
 **Primary KPI**: weighted_pearson
 
 **Recent learnings:**
-- Story ITEM-008 succeeded by agent_1, reward=1.0000, metric=None
-- Story ML-001 succeeded by agent_1, reward=1.0000, metric=None
-- Story ML-006 succeeded by agent_1, reward=1.0000, metric=None
-- Story ML-001 succeeded by agent_1, reward=1.0000, metric=None
-- Story ML-001 succeeded by agent_1, reward=1.0000, metric=None
-- Story ML-001 succeeded by agent_1, reward=1.0000, metric=None
 - Story DL-007 failed by agent_1, reward=-1.0, error=Verification timed out (600s)
 - Story ML-001 succeeded by agent_1 in Council.
 - Story ML-001 succeeded by agent_1 in Council.
 - Story ML-001 failed by agent_1 in Council.
+- Story ML-001 succeeded by agent_1 in Council.
+- Story ML-002 succeeded by agent_1 in Council.
+- Story ML-001 succeeded by agent_1 in Council.
+- Story ML-002 succeeded by agent_1 in Council.
+- Story ML-001 succeeded by agent_1 in Council.
+- Story ML-002 succeeded by agent_1 in Council.
 
 ### Agent 2 (agent_2)
 

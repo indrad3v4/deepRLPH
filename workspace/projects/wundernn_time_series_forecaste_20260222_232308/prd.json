@@ -1,38 +1,43 @@
 {
-  "task": "Refactor the existing `t_kan.py` neural network architecture to enforce strict causal constraints, eliminating architectural look-ahead bias.",
+  "task": "Lobotomize deep-history memory and force generalization to fix Regime Overfitting (0.76 to 0.0115 decay). Execute a surgical reduction of the T-KAN receptive field to 32 ticks and heavily increase regularization via dropout and weight decay.",
   "domain": "time_series_forecasting",
-  "total_items": 1,
+  "total_items": 2,
   "user_stories": [
     {
       "id": "ML-001",
-      "title": "Architectural Causality Surgery (Monolithic Fix)",
-      "description": "Refactor src/models/t_kan.py to enforce strict architectural causality. Replace standard Conv1d layers with CausalConv1d (apply left padding `(kernel_size-1)*dilation` using F.pad, and set conv padding=0). Remove bidirectional=True from all RNNs/LSTMs. If there is Attention, apply a causal upper-triangular mask.",
+      "title": "Receptive Field & Regularization Surgery in T-KAN",
+      "description": "Change `self.dilation_rates` to `[1, 2, 4, 8, 16]`. Increase `nn.Dropout` in `_create_dilated_causal_layer` and `self.processing` to `0.5`. Increase `nn.Dropout` in `self.fc_head` to `0.6`. Update the `total_receptive_field` calculation in the `__main__` block. Ensure the forward pass still strictly returns `x[:, :, -901:]`.",
       "acceptance_criteria": [
-        "All convolutions are strictly left-padded causal convolutions. No future data bleeds into the kernel.",
-        "Bidirectional flags are completely purged from the file.",
-        "The model mathematically cannot access time step t+1 when predicting for time step t."
+        "Dilation rates array is strictly [1, 2, 4, 8, 16].",
+        "Dropout probabilities are increased to 0.5 and 0.6.",
+        "Model forward pass output shape remains exactly (batch, 901, 2)."
       ],
-      "verification": "python -c \"import sys; sys.path.insert(0, '.'); import torch; from src.models.t_kan import create_model; m = create_model(); m.eval(); x = torch.randn(2, 1000, 40); y1 = m(x); x_mod = x.clone(); x_mod[:, 500:, :] = 100.0; y2 = m(x_mod); max_diff = torch.max(torch.abs(y1[:, :499, :] - y2[:, :499, :])).item(); assert max_diff < 1e-4, f'CAUSALITY LEAK: Future data changed past predictions! Max diff: {max_diff}'\"",
-      "why": "To mathematically guarantee no look-ahead bias exists in the neural network graph, preventing Reward Hacking.",
+      "verification": "python -c \"import torch; from src.models.t_kan import TemporalKAN; model = TemporalKAN(); x = torch.randn(2, 1000, 40); y = model(x); assert y.shape == (2, 901, 2), f'Shape failed: {y.shape}'; assert model.dilation_rates == [1, 2, 4, 8, 16], 'Dilation failed'\"",
+      "why": "To drastically reduce the receptive field to recent ticks only and heavily penalize network capacity to prevent memorization of the validation regime.",
       "files_touched": [
         "src/models/t_kan.py"
       ],
-      "status": "failed",
-      "attempts": 4,
-      "errors": [
-        "Command failed with code 1:\nTraceback (most recent call last):\n  File \"<string>\", line 1, in <module>\nAssertionError: CAUSALITY LEAK: Future data changed past predictions! Max diff: 0.6198549270629883\n",
-        "Command failed with code 1:\nTraceback (most recent call last):\n  File \"<string>\", line 1, in <module>\nAssertionError: CAUSALITY LEAK: Future data changed past predictions! Max diff: 0.9693877696990967\n",
-        "Command failed with code 1:\nTraceback (most recent call last):\n  File \"<string>\", line 1, in <module>\nAssertionError: CAUSALITY LEAK: Future data changed past predictions! Max diff: 0.8566687703132629\n",
-        "Command failed with code 1:\nTraceback (most recent call last):\n  File \"<string>\", line 1, in <module>\nAssertionError: CAUSALITY LEAK: Future data changed past predictions! Max diff: 0.6486371755599976\n"
-      ]
+      "status": "done",
+      "attempts": 0,
+      "errors": []
+    },
+    {
+      "id": "ML-002",
+      "title": "Optimizer Penalty and Training Loop Constraints",
+      "description": "In `TrainingPipeline.__init__`, locate the `optim.AdamW` instantiation. Change `weight_decay` to `0.1` to heavily penalize memorization. Ensure `max_epochs` is set to `20`.",
+      "acceptance_criteria": [
+        "AdamW optimizer utilizes weight_decay=0.1.",
+        "max_epochs is explicitly set to 20.",
+        "The deploy() method remains completely unaltered."
+      ],
+      "verification": "python -c \"lines = open('src/train.py').read(); assert 'weight_decay=0.1' in lines or 'weight_decay=1e-1' in lines, 'Weight decay not updated'\"",
+      "why": "To enforce harsh L2 regularization (weight decay) forcing the model to learn only the most robust, generalized alpha signals instead of fitting noise.",
+      "files_touched": [
+        "src/train.py"
+      ],
+      "status": "done",
+      "attempts": 0,
+      "errors": []
     }
-  ],
-  "project_metadata": {
-    "project_type": "ml_competition",
-    "eval_metric": "weighted_pearson",
-    "metric_target": 0.35,
-    "batch_size": 32,
-    "epochs": 50,
-    "learning_rate": 0.001
-  }
+  ]
 }

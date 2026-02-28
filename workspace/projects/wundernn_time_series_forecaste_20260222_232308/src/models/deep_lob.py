@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 
 
-class DeepLOB(nn.Module):
+class TemporalFusionDeepLOB(nn.Module):
     """
     TRIZ-Optimized DeepLOB Architecture for hyper-fast CPU Inference.
 
@@ -16,8 +16,11 @@ class DeepLOB(nn.Module):
     memorization pathways using heavy Dropout layers.
     """
 
-    def __init__(self, input_dim=40, hidden_dim=64):
-        super(DeepLOB, self).__init__()
+    def __init__(self, input_dim=32, hidden_dim=64, num_lstm_layers=2):
+        super(TemporalFusionDeepLOB, self).__init__()
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+        self.num_lstm_layers = num_lstm_layers
 
         # 1. Cross-Sectional Feature Mixer (1x1 Conv)
         self.feature_mixer = nn.Sequential(
@@ -44,7 +47,7 @@ class DeepLOB(nn.Module):
         self.lstm = nn.LSTM(
             input_size=64,
             hidden_size=hidden_dim,
-            num_layers=1,
+            num_layers=num_lstm_layers,
             batch_first=True,
             bidirectional=False
         )
@@ -56,7 +59,7 @@ class DeepLOB(nn.Module):
         self.fc2 = nn.Linear(32, 2)
 
         # Example input for documentation and testing
-        self.example_input_array = torch.randn(1, 1000, 40)
+        self.example_input_array = torch.randn(1, 1000, input_dim)
 
         self._init_weights()
 
@@ -82,7 +85,7 @@ class DeepLOB(nn.Module):
         Args:
             x (torch.Tensor): Input tensor of shape (batch_size, sequence_length, input_dim)
                 - sequence_length: Must be >= 1000 for proper slicing
-                - input_dim: Default is 40 features
+                - input_dim: Default is 32 features
 
         Returns:
             torch.Tensor: Output tensor of shape (batch_size, sequence_length - 99, 2)
@@ -119,10 +122,14 @@ class DeepLOB(nn.Module):
         # Competition evaluator requires float32
         return out.to(torch.float32)
 
+    def predict(self, x: torch.Tensor) -> torch.Tensor:
+        """Predict method that ensures float32 output."""
+        return self.forward(x)
+
 
 def create_model():
-    """Factory function to create a DeepLOB model instance."""
-    return DeepLOB(input_dim=40)
+    """Factory function to create a TemporalFusionDeepLOB model instance."""
+    return TemporalFusionDeepLOB(input_dim=32, hidden_dim=64, num_lstm_layers=2)
 
 
 if __name__ == "__main__":
@@ -133,7 +140,7 @@ if __name__ == "__main__":
     model.eval()  # Force eval mode to trigger normalization behavior
 
     batch_size = 1  # Simulating the exact environment of prerun.py
-    dummy_input = torch.randn(batch_size, 1000, 40)
+    dummy_input = torch.randn(batch_size, 1000, 32)
 
     with torch.inference_mode():
         output = model(dummy_input)

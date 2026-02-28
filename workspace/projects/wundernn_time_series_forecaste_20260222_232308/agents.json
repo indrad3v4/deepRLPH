@@ -526,6 +526,60 @@
             "metric_value": null,
             "reward": -1.0
           }
+        },
+        {
+          "summary": "Story ML-001 succeeded by agent_1 in Council.",
+          "metrics": {
+            "story_id": "ML-001",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ML-002 succeeded by agent_1 in Council.",
+          "metrics": {
+            "story_id": "ML-002",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ML-001 succeeded by agent_1 in Council.",
+          "metrics": {
+            "story_id": "ML-001",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ML-002 succeeded by agent_1 in Council.",
+          "metrics": {
+            "story_id": "ML-002",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ML-001 succeeded by agent_1 in Council.",
+          "metrics": {
+            "story_id": "ML-001",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
+        },
+        {
+          "summary": "Story ML-002 succeeded by agent_1 in Council.",
+          "metrics": {
+            "story_id": "ML-002",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
         }
       ],
       "notes": [
@@ -585,7 +639,13 @@
         "Story DL-007 failed by agent_1, reward=-1.0, error=Verification timed out (600s)",
         "Story ML-001 succeeded by agent_1 in Council.",
         "Story ML-001 succeeded by agent_1 in Council.",
-        "Story ML-001 failed by agent_1 in Council."
+        "Story ML-001 failed by agent_1 in Council.",
+        "Story ML-001 succeeded by agent_1 in Council.",
+        "Story ML-002 succeeded by agent_1 in Council.",
+        "Story ML-001 succeeded by agent_1 in Council.",
+        "Story ML-002 succeeded by agent_1 in Council.",
+        "Story ML-001 succeeded by agent_1 in Council.",
+        "Story ML-002 succeeded by agent_1 in Council."
       ]
     },
     "agent_2": {
