@@ -1,5 +1,5 @@
 {
   "name": "weighted_pearson",
   "pattern": "Weighted Pearson(?: Correlation Coefficient)?: (?P<value>[-+]?\\d*\\.\\d+)",
-  "target": 0.35
+  "target": 0.9
 }
