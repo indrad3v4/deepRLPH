@@ -7,6 +7,10 @@ Upgrades:
 - Stage 2 Isolation: Guardrail-aware command execution.
 - Deterministic Handoff: explicit human intervention triggers.
 - Full Tool Schema: read_file, write_file, execute_command, request_human_intervention, finish_task.
+
+WunderNN / Council Upgrades:
+- Enforce "read → patch → verify" discipline with nudges and early HITL escalation.
+- Allow injection of AgentProfile blobs into the system prompt for role-specialised behavior.
 """
 
 import asyncio
@@ -32,10 +36,9 @@ class PRDAgentAssignmentMixin:
         deepseek_client: Any,
         log_callback: Optional[callable] = None,
         orchestrator_prompt: str = "",
+        agent_profile: Any = None,
     ) -> Dict[str, Any]:
-        """
-        Drive a single PRD item to completion using a tool-using Deepseek agent.
-        """
+        """Drive a single PRD item to completion using a tool-using Deepseek agent."""
 
         async def _log(msg: str):
             line = f"[{agent_id}] {msg}"
@@ -55,39 +58,54 @@ class PRDAgentAssignmentMixin:
         # === o1 Prompt Anatomy: System Prompt ==================================
         # GOAL / RETURN FORMAT / WARNINGS / CONTEXT DUMP
         acc_lines = "\n".join(f"- {c}" for c in (item.acceptance_criteria or []))
-        system_prompt = f"""### GOAL
-Implement PRD item {item.item_id}: {item.title}.
-Modify the codebase in the project workspace so that all acceptance criteria and the verification command for this item pass.
 
-### RETURN FORMAT
-Use ONLY tool calls (`read_file`, `write_file`, `execute_command`, `request_human_intervention`, `finish_task`).
-Write or edit real files under the project root, then run the official verification command:
-`{item.verification_command}`.
-When the item is truly implemented and verified, call `finish_task` with a short JSON summary:
-- changed_files: list of paths
-- tests_run: list of commands
-- rationale: brief explanation.
+        agent_profile_blob = ""
+        try:
+            if agent_profile is not None:
+                agent_profile_blob = agent_profile.to_prompt_blob()
+        except Exception:
+            agent_profile_blob = ""
 
-### WARNINGS
-Be careful to:
-- Keep all logic strictly causal and deterministic where applicable; never let past predictions depend on future data.
-- Avoid writing outside the project root and NEVER use destructive shell commands on parent directories.
-- Do not invent dataset paths, API endpoints, or external services; rely only on files actually present in the workspace.
-- Keep edits minimal and local; prefer modifying existing modules over creating many new ones.
+        profile_section = ""
+        if agent_profile_blob:
+            profile_section = "\n\n### AGENT PROFILE\n" + agent_profile_blob.strip()
 
-### CONTEXT DUMP
-Project root: {project_dir}
-PRD acceptance criteria for {item.item_id}:
-{acc_lines or "- (none provided)"}
+        system_prompt = (
+            "### GOAL\n"
+            f"Implement PRD item {item.item_id}: {item.title}.\n"
+            "Modify the codebase in the project workspace so that all acceptance criteria and the "
+            "verification command for this item pass.\n\n"
+            "### RETURN FORMAT\n"
+            "Use ONLY tool calls (`read_file`, `write_file`, `execute_command`, "
+            "`request_human_intervention`, `finish_task`).\n"
+            "Write or edit real files under the project root, then run the official verification "
+            f"command: `{item.verification_command}`.\n"
+            "When the item is truly implemented and verified, call `finish_task` with a short JSON summary:\n"
+            "- changed_files: list of paths\n"
+            "- tests_run: list of commands\n"
+            "- rationale: brief explanation.\n\n"
+            "### WARNINGS\n"
+            "Be careful to:\n"
+            "- Keep all logic strictly causal and deterministic where applicable; never let past predictions depend on future data.\n"
+            "- Avoid writing outside the project root and NEVER use destructive shell commands on parent directories.\n"
+            "- Do not invent dataset paths, API endpoints, or external services; rely only on files actually present in the workspace.\n"
+            "- Keep edits minimal and local; prefer modifying existing modules over creating many new ones.\n\n"
+            "### CONTEXT DUMP\n"
+            f"Project root: {project_dir}\n"
+            f"PRD acceptance criteria for {item.item_id}:\n{acc_lines or '- (none provided)'}\n\n"
+            "Orchestrator guidance:\n"
+            f"{orchestrator_prompt}\n"
+            f"{profile_section}"
+        ).strip()
 
-Orchestrator guidance:
-{orchestrator_prompt}
-"""
         # Initial message to kick off the loop.
         messages = [
             {
                 "role": "user",
-                "content": "Analyze the GOAL / RETURN FORMAT / WARNINGS / CONTEXT DUMP and start the Implementation Phase using tools.",
+                "content": (
+                    "Analyze the GOAL / RETURN FORMAT / WARNINGS / CONTEXT DUMP and start the "
+                    "Implementation Phase using tools."
+                ),
             }
         ]
 
@@ -95,6 +113,11 @@ Orchestrator guidance:
 
         max_iterations = 15  # Tightened from 30 to prevent token burn
         files_created: Set[str] = set()
+
+        # Behaviour tracking for "read → patch → verify" discipline
+        has_written_any = False
+        has_ran_official_verification = False
+        analysis_only_iters = 0
 
         try:
             for iteration in range(max_iterations):
@@ -128,10 +151,37 @@ Orchestrator guidance:
                     messages.append(
                         {
                             "role": "user",
-                            "content": "Continue implementation using the available tools or call finish_task when done.",
+                            "content": (
+                                "Continue implementation using the available tools or call finish_task "
+                                "when done."
+                            ),
                         }
                     )
+                    analysis_only_iters += 1
+
+                    # Early guardrail: if the agent keeps chatting without tools, escalate.
+                    if analysis_only_iters >= 4 and not has_written_any and not has_ran_official_verification:
+                        await _log(
+                            "🛑 Analysis-only loop without tools; escalating to human for this PRD item."
+                        )
+                        summary = {
+                            "changed_files": sorted(list(files_created)),
+                            "tests_run": [],
+                            "rationale": (
+                                "Agent produced only natural language for multiple iterations without "
+                                "using tools. Needs human intervention."
+                            ),
+                        }
+                        return {
+                            "status": "needs_human",
+                            "error": "analysis_only_no_tools",
+                            "files_created": list(files_created),
+                            "summary": summary,
+                        }
+
                     continue
+
+                iteration_did_write_or_verify = False
 
                 for tool_call in tool_calls:
                     func_name = tool_call["function"]["name"]
@@ -141,13 +191,22 @@ Orchestrator guidance:
                     except Exception:
                         args = {}
                     await _log(
-                        f"→ Calling tool '{func_name}' with args: {json.dumps(args, ensure_ascii=False)[:200]}"
+                        f"→ Calling tool '{func_name}' with args: "
+                        f"{json.dumps(args, ensure_ascii=False)[:200]}"
                     )
 
                     # Tool Execution Logic
                     result = await self._dispatch_tool(
                         func_name, args, project_dir, item, files_created, _log
                     )
+
+                    if result.get("did_write"):
+                        has_written_any = True
+                        iteration_did_write_or_verify = True
+
+                    if result.get("ran_official_verification"):
+                        has_ran_official_verification = True
+                        iteration_did_write_or_verify = True
 
                     # Sequential Logic for Early Termination
                     if result.get("terminate"):
@@ -162,6 +221,52 @@ Orchestrator guidance:
                             "content": str(result.get("content", ""))[:5000],
                         }
                     )
+
+                # Post-iteration discipline check
+                if not iteration_did_write_or_verify:
+                    analysis_only_iters += 1
+                else:
+                    analysis_only_iters = 0
+
+                if analysis_only_iters >= 4 and not has_written_any and not has_ran_official_verification:
+                    await _log(
+                        "⚠️ Stuck in analysis-only loop; nudging agent to write a patch and run verification."
+                    )
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "You have spent several iterations only reading/exploring. Now you MUST "
+                                "propose a minimal patch using write_file and then run the PRD item's "
+                                "verification command, or if you are blocked, call "
+                                "request_human_intervention with a concise explanation."
+                            ),
+                        }
+                    )
+
+                # Hard cap: too many analysis-only iterations without any patch or verification
+                if (
+                    iteration >= 7
+                    and not has_written_any
+                    and not has_ran_official_verification
+                ):
+                    await _log(
+                        "🛑 Analysis-only budget exhausted; escalating EXEC item to human operator."
+                    )
+                    summary = {
+                        "changed_files": sorted(list(files_created)),
+                        "tests_run": [],
+                        "rationale": (
+                            "Agent exhausted analysis-only iterations without writing a patch or "
+                            "running the official verification command. Escalating to human."
+                        ),
+                    }
+                    return {
+                        "status": "needs_human",
+                        "error": "analysis_only_budget_exhausted",
+                        "files_created": list(files_created),
+                        "summary": summary,
+                    }
 
             # Hard stop: hit iteration limit
             await _log("Max iterations reached; returning partial success.")
@@ -205,12 +310,16 @@ Orchestrator guidance:
                 return {
                     "content": "🚫 BLOCKED: Unsafe delete detected outside project root.",
                     "terminate": False,
+                    "did_write": False,
+                    "ran_official_verification": False,
                 }
 
             res = await self._run_command_safe(cmd, project_dir, log_fn)
 
+            is_official = cmd.strip() == (item.verification_command or "").strip()
+
             # If this was the official verification command and it passed — we are done
-            if res["success"] and cmd.strip() == (item.verification_command or "").strip():
+            if res["success"] and is_official:
                 await log_fn("🎯 Verification Passed. Auto-terminating story.")
                 summary = {
                     "changed_files": sorted(list(files_created)),
@@ -224,15 +333,28 @@ Orchestrator guidance:
                         "files_created": list(files_created),
                         "summary": summary,
                     },
+                    "did_write": False,
+                    "ran_official_verification": True,
                 }
 
-            return {"content": res["output"], "terminate": False}
+            return {
+                "content": res["output"],
+                "terminate": False,
+                "did_write": False,
+                # Even if it failed, treat as "attempted" official verification for discipline stats.
+                "ran_official_verification": is_official,
+            }
 
         # --- read_file -------------------------------------------------------
         if func_name == "read_file":
             rel_path = args.get("path", "")
             if not rel_path:
-                return {"content": "read_file: missing 'path' argument", "terminate": False}
+                return {
+                    "content": "read_file: missing 'path' argument",
+                    "terminate": False,
+                    "did_write": False,
+                    "ran_official_verification": False,
+                }
 
             abs_path = (project_dir / rel_path).resolve()
             root = project_dir.resolve()
@@ -241,25 +363,47 @@ Orchestrator guidance:
                 return {
                     "content": "🚫 read_file blocked: path must stay within project root.",
                     "terminate": False,
+                    "did_write": False,
+                    "ran_official_verification": False,
                 }
 
             try:
                 text = abs_path.read_text(encoding="utf-8")
                 await log_fn(f"read_file OK: {rel_path} ({len(text)} chars)")
-                return {"content": text[:8000], "terminate": False}
+                return {
+                    "content": text[:8000],
+                    "terminate": False,
+                    "did_write": False,
+                    "ran_official_verification": False,
+                }
             except FileNotFoundError:
                 await log_fn(f"read_file: not found: {rel_path}")
-                return {"content": f"File not found: {rel_path}", "terminate": False}
+                return {
+                    "content": f"File not found: {rel_path}",
+                    "terminate": False,
+                    "did_write": False,
+                    "ran_official_verification": False,
+                }
             except Exception as e:
                 await log_fn(f"read_file error on {rel_path}: {e}")
-                return {"content": f"Error reading {rel_path}: {e}", "terminate": False}
+                return {
+                    "content": f"Error reading {rel_path}: {e}",
+                    "terminate": False,
+                    "did_write": False,
+                    "ran_official_verification": False,
+                }
 
         # --- write_file ------------------------------------------------------
         if func_name == "write_file":
             rel_path = args.get("path", "")
             content = args.get("content", "")
             if not rel_path:
-                return {"content": "write_file: missing 'path' argument", "terminate": False}
+                return {
+                    "content": "write_file: missing 'path' argument",
+                    "terminate": False,
+                    "did_write": False,
+                    "ran_official_verification": False,
+                }
 
             abs_path = (project_dir / rel_path).resolve()
             root = project_dir.resolve()
@@ -268,6 +412,8 @@ Orchestrator guidance:
                 return {
                     "content": "🚫 write_file blocked: path must stay within project root.",
                     "terminate": False,
+                    "did_write": False,
+                    "ran_official_verification": False,
                 }
 
             try:
@@ -280,10 +426,17 @@ Orchestrator guidance:
                 return {
                     "content": f"write_file OK: {rel_path}",
                     "terminate": False,
+                    "did_write": True,
+                    "ran_official_verification": False,
                 }
             except Exception as e:
                 await log_fn(f"write_file error on {rel_path}: {e}")
-                return {"content": f"Error writing {rel_path}: {e}", "terminate": False}
+                return {
+                    "content": f"Error writing {rel_path}: {e}",
+                    "terminate": False,
+                    "did_write": False,
+                    "ran_official_verification": False,
+                }
 
         # --- request_human_intervention --------------------------------------
         if func_name == "request_human_intervention":
@@ -301,12 +454,16 @@ Orchestrator guidance:
                     "files_created": list(files_created),
                     "summary": summary,
                 },
+                "did_write": False,
+                "ran_official_verification": False,
             }
 
         # --- finish_task -----------------------------------------------------
         if func_name == "finish_task":
             summary = args.get("summary", {})
-            await log_fn(f"✅ finish_task called with summary: {json.dumps(summary, ensure_ascii=False)[:300]}")
+            await log_fn(
+                f"✅ finish_task called with summary: {json.dumps(summary, ensure_ascii=False)[:300]}"
+            )
             return {
                 "terminate": True,
                 "payload": {
@@ -314,11 +471,18 @@ Orchestrator guidance:
                     "files_created": list(files_created),
                     "summary": summary,
                 },
+                "did_write": False,
+                "ran_official_verification": False,
             }
 
         # --- Fallback for unknown tools --------------------------------------
         await log_fn(f"Unknown tool '{func_name}' executed with args={args}")
-        return {"content": f"Unknown tool '{func_name}'", "terminate": False}
+        return {
+            "content": f"Unknown tool '{func_name}'",
+            "terminate": False,
+            "did_write": False,
+            "ran_official_verification": False,
+        }
 
     async def _run_command_safe(self, cmd: str, project_dir: Path, log_fn):
         """Execution helper with 120s timeout."""
@@ -348,8 +512,7 @@ Orchestrator guidance:
     # --------------------------------------------------------------------- #
 
     def _get_agent_tools(self) -> List[Dict[str, Any]]:
-        """
-        Returns standard tool schema (read, write, execute, escalate, finish).
+        """Returns standard tool schema (read, write, execute, escalate, finish).
 
         The schema is compatible with Deepseek's call_agent_with_tools interface.
         """
@@ -402,7 +565,10 @@ Orchestrator guidance:
                         "properties": {
                             "command": {
                                 "type": "string",
-                                "description": "Shell command to execute, e.g. 'python -m pytest tests/test_causal_lob_forecaster.py -v'.",
+                                "description": (
+                                    "Shell command to execute, e.g. 'python -m pytest "
+                                    "tests/test_causal_lob_forecaster.py -v'."
+                                ),
                             }
                         },
                         "required": ["command"],

@@ -20,6 +20,11 @@ Additional Enhancements (Council v2):
   - Use an o1-style GOAL / RETURN FORMAT / WARNINGS / CONTEXT DUMP layout.
   - Embed TRIZ-style multi-stage reasoning instructions as internal guidance.
   - Still enforce JSON-only PRD output for stable downstream parsing.
+
+Competition-Aware Enhancements (WunderNN):
+- Competition Brief Wiring:
+  - Persist a long-form competition brief in config.metadata["competition_brief"], defaulting to description.
+  - Surface eval_metric / metric_target into DARIZ + council prompts.
 """
 
 from dataclasses import dataclass, asdict, field
@@ -44,6 +49,7 @@ logger = logging.getLogger("Orchestrator")
 # ============================================================================
 # DATA MODELS (Transactional & Type-Safe)
 # ============================================================================
+
 
 class ProjectType(str, Enum):
     API_DEVELOPMENT = "api_dev"
@@ -123,6 +129,7 @@ class ExecutionState:
 # ============================================================================
 # WORKSPACE & ORCHESTRATOR
 # ============================================================================
+
 
 class WorkspaceManager:
     """Manages atomic project workspace initialization."""
@@ -208,6 +215,12 @@ class RalphOrchestrator:
             metadata["attached_files"] = normalized_attached
             # Initialize a context_summary cache slot (filled later in refine_task / DARIZ)
             metadata.setdefault("context_summary", "")
+
+            # Seed competition_brief from description if UI/template did not provide one explicitly.
+            if "competition_brief" not in metadata:
+                desc = metadata.get("description") or config.description or ""
+                metadata["competition_brief"] = desc
+
             config.metadata = metadata
 
             (project_dir / "config.json").write_text(json.dumps(config.to_dict(), indent=2))
@@ -357,6 +370,22 @@ class RalphOrchestrator:
                     logger.warning("DARIZ: context ingest failed: %s", e)
                     context_summary = ""
 
+            metadata = self.current_config.metadata or {}
+            competition_brief = metadata.get("competition_brief", "")
+            eval_metric = metadata.get("eval_metric", "")
+            metric_target = metadata.get("metric_target", "")
+
+            # Build an optional competition-awareness block for the system prompt.
+            competition_block_lines: List[str] = []
+            if competition_brief:
+                competition_block_lines.append("### COMPETITION BRIEF\n" + competition_brief.strip())
+            if eval_metric or metric_target:
+                competition_block_lines.append(
+                    "### METRIC & TARGET\n"
+                    + f"- Eval metric: {eval_metric or 'n/a'}\n- Target: {metric_target or 'n/a'}"
+                )
+            competition_block = "\n\n".join(competition_block_lines).strip()
+
             exit_code = crash_snapshot.get("exit_code")
             output_tail = crash_snapshot.get("output_tail", "")
             terminal_dump = crash_snapshot.get("terminal_dump") or crash_snapshot.get("terminal", "")
@@ -419,6 +448,9 @@ You must INTERNALLY follow a rigorous, multi-stage TRIZ-style reasoning process 
 You NEVER output this reasoning or the instructions block. You only output the final JSON PRD object.
 </instructions>
 """.strip()
+
+            if competition_block:
+                system_prompt = system_prompt + "\n\n" + competition_block
 
             # === User message assembly ===============================================
             user_message_parts: List[str] = []
@@ -505,6 +537,21 @@ You NEVER output this reasoning or the instructions block. You only output the f
         context_summary = (config.metadata or {}).get("context_summary", "")
         schemas = json.dumps(config.metadata.get("dataset_schemas", "none"))
 
+        metadata = config.metadata or {}
+        competition_brief = metadata.get("competition_brief", "")
+        eval_metric = metadata.get("eval_metric", "")
+        metric_target = metadata.get("metric_target", "")
+
+        competition_lines: List[str] = []
+        if competition_brief:
+            competition_lines.append("### COMPETITION BRIEF\n" + competition_brief.strip())
+        if eval_metric or metric_target:
+            competition_lines.append(
+                "### METRIC & TARGET\n"
+                + f"- Eval metric: {eval_metric or 'n/a'}\n- Target: {metric_target or 'n/a'}"
+            )
+        competition_section = "\n\n".join(competition_lines).strip()
+
         # Keep this light; main heavy TRIZ thinking lives in DARIZ. Here we nudge
         # council agents toward small, surgical implementation plus fast verification.
         user_message = f"""
@@ -528,21 +575,23 @@ You do NOT return text here; your job is to follow these instructions internally
 
 - DATASET SCHEMAS:
 {schemas}
-
-For each story, you should:
-1) Read the relevant files listed or implied by the story.
-2) Propose a minimal patch that satisfies the acceptance criteria.
-3) Apply it via write_file.
-4) Run the story's verification command.
-5) If still blocked, call request_human_intervention with a concise explanation.
 """.strip()
 
+        if competition_section:
+            user_message = user_message + "\n\n" + competition_section
+
         result = await self.deepseek_client.call_agent(
-            system_prompt="You are a system architect for deepRLPH. Rewrite the user guidance as a short, direct paragraph for autonomous coding agents. Do not add new requirements.",
+            system_prompt=(
+                "You are a system architect for deepRLPH. Rewrite the user guidance as a short, "
+                "direct paragraph for autonomous coding agents. Do not add new requirements."
+            ),
             user_message=user_message,
             thinking_budget=4000,
         )
-        return result.get("response", "Proceed with implementation using tools: read_file, write_file, execute_command, request_human_intervention, finish_task.")
+        return result.get(
+            "response",
+            "Proceed with implementation using tools: read_file, write_file, execute_command, request_human_intervention, finish_task.",
+        )
 
     # --------------------------------------------------------------------- #
     # DISCOVERY, SUBMISSION, UTILITIES
