@@ -137,3 +137,39 @@ def weighted_pearson_loss(predictions, targets, reduction='mean', eps=1e-8):
         torch.Tensor: Weighted Pearson correlation loss
     """
     return WeightedPearsonCorrelationLoss(reduction=reduction, eps=eps)(predictions, targets)
+
+def weighted_pearson_corr(predictions, targets, eps: float = 1e-8) -> float:
+    """
+    Compute weighted Pearson correlation (|y| weights) as a METRIC, not a loss.
+
+    predictions, targets: (B, T, 2) or (N, 2). Returns scalar float.
+    """
+    if predictions.dim() == 3:
+        pred_flat = predictions.reshape(-1, predictions.shape[-1])
+        target_flat = targets.reshape(-1, targets.shape[-1])
+    else:
+        pred_flat = predictions
+        target_flat = targets
+
+    # |y| weights, like your loss
+    weights = torch.abs(target_flat) + eps
+
+    # Weighted means
+    w_sum = weights.sum(dim=0)
+    mean_pred = (weights * pred_flat).sum(dim=0) / w_sum
+    mean_target = (weights * target_flat).sum(dim=0) / w_sum
+
+    # Centered
+    dp = pred_flat - mean_pred
+    dt = target_flat - mean_target
+
+    # Weighted covariance and variances
+    cov = (weights * dp * dt).sum(dim=0)
+    var_p = (weights * dp * dp).sum(dim=0)
+    var_t = (weights * dt * dt).sum(dim=0)
+
+    corr = cov / (torch.sqrt(var_p * var_t) + eps)
+    corr = torch.clamp(corr, -1.0, 1.0)
+
+    # Average across t0, t1
+    return corr.mean().item()
