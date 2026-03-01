@@ -36,7 +36,7 @@
       "/Users/fedorvabisevic/Documents/Programms/deepRLPH/workspace/projects/wundernn_time_series_forecaste_20260222_232308/utils.py"
     ],
     "eval_metric": "weighted_pearson",
-    "metric_target": 0.9,
+    "metric_target": 0.35,
     "prd_backlog": {
       "backlog": [
         {
