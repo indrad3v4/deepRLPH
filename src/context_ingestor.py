@@ -59,8 +59,15 @@ class ProjectContext:
                 ds = self.binary_summaries.get(key) or {}
                 # Extract deeper metadata for ML model grounding
                 schema_info = f"rows={ds.get('row_count')}, cols={ds.get('column_count')}"
-                if ds.get('columns'):
-                    schema_info += f", schema={list(ds['columns'].keys())[:5]}..."
+                cols = ds.get("columns")
+                if cols:
+                    if isinstance(cols, dict):
+                        col_names = list(cols.keys())
+                    elif isinstance(cols, list):
+                        col_names = cols
+                    else:
+                        col_names = []
+                    schema_info += f", schema={col_names[:5]}..."
                 lines.append(f"- {key} ({schema_info})")
 
         if self.models:
@@ -120,7 +127,7 @@ async def ingest_project_context(project_dir: Path) -> ProjectContext:
     ctx.code = scan_data["code"]
 
     # Concurrently attach binary summaries
-    tasks = []
+    tasks: List[asyncio.Task] = []
     for ds_path in ctx.datasets:
         tasks.append(_attach_dataset_summary(ctx, ds_path))
     for ml_path in ctx.models:

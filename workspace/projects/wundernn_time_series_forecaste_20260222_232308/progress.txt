@@ -441,3 +441,52 @@ AssertionError: Causality violated!
 
 [2026-03-01 02:28:20] ML-006 - SUCCESS
 [agent=agent_1] Verification passed. Metric: N/A
+
+[2026-03-01 02:43:07] ML-007 - FAILED
+[agent=agent_1] Command failed with code 4:
+============================= test session starts ==============================
+platform darwin -- Python 3.9.13, pytest-7.4.3, pluggy-1.6.0 -- /Users/fedorvabisevic/Documents/Programms/deepRLPH/venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/fedorvabisevic/Documents/Programms/deepRLPH
+plugins: anyio-4.12.1
+collecting ... ERROR: not found: /Users/fedorvabisevic/Documents/Programms/deepRLPH/workspace/projects/wundernn_time_series_forecaste_20260222_232308/tests/test_causal_lob_forecaster.py::test_causality_invariance
+(no name '/Users/fedorvabisevic/Documents/Programms/deepRLPH/workspace/projects/wundernn_time_series_forecaste_20260222_232308/tests/test_causal_lob_forecaster.py::test_causality_invariance' in any of [<Module workspace/projects/wundernn_time_series_forecaste_20260222_232308/tests/test_causal_lob_forecaster.py>])
+
+ERROR: not found: /Users/fedorvabisevic/Documents/Programms/deepRLPH/workspace/projects/wundernn_time_series_forecaste_20260222_232308/tests/test_causal_lob_forecaster.py::test_gradient_causality
+(no name '/Users/fedorvabisevic/Documents/Programms/deepRLPH/workspace/projects/wundernn_time_series_forecaste_20260222_232308/tests/test_causal_lob_forecaster.py::test_gradient_causality' in any of [<Module workspace/projects/wundernn_time_series_forecaste_20260222_232308/tests/test_causal_lob_forecaster.py>])
+
+collected 0 items
+
+============================ no tests ran in 2.72s =============================
+
+
+[2026-03-01 02:57:20] ML-007 - SUCCESS
+[agent=agent_2] Verification passed. Metric: N/A
+
+[2026-03-01 03:03:03] ML-008 - FAILED
+[agent=agent_1] Command failed with code 1:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+NameError: name 'torch' is not defined
+
+
+[2026-03-01 03:09:47] ML-008 - FAILED
+[agent=agent_2] Command failed with code 1:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+NameError: name 'torch' is not defined
+
+
+[2026-03-01 03:16:13] ML-008 - FAILED
+[agent=agent_3] Command failed with code 1:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+NameError: name 'torch' is not defined
+
+
+[2026-03-01 03:22:22] ML-008 - FAILED
+[agent=agent_4] Command failed with code 1:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+NameError: name 'torch' is not defined
+

@@ -286,7 +286,7 @@ class RalphOrchestrator:
         try:
             # Grounded context for DARIZ (DR4-03 partial): reuse ingest_project_context
             try:
-                ctx = ingest_project_context(self.current_project_dir)
+                ctx = await ingest_project_context(self.current_project_dir)
                 context_summary = ctx.to_text_summary()
             except Exception as e:
                 logger.warning("DARIZ: context ingest failed: %s", e)
@@ -381,8 +381,8 @@ class RalphOrchestrator:
         )
         return result.get("response", "Proceed with implementation.")
 
-    async def list_projects(self) -> List[Dict]:
-        """Async project discovery."""
+    def list_projects(self) -> List[Dict]:
+        """Synchronous project discovery for GUI."""
         projects_dir = self.workspace / "projects"
         if not projects_dir.exists():
             return []
@@ -406,8 +406,7 @@ class RalphOrchestrator:
                     continue
             return found
 
-        loop = asyncio.get_running_loop()
-        projects = await loop.run_in_executor(None, _scan)
+        projects = _scan()
         return sorted(projects, key=lambda x: x["created_at"], reverse=True)
 
     def create_submission(self, project_id: str) -> Dict:

@@ -1,75 +1,70 @@
 {
-  "task": "Implement causal neural network with integrity safeguards",
-  "domain": "time_series_forecasting",
-  "total_items": 8,
   "user_stories": [
     {
-      "id": "ML-005",
-      "title": "Assemble Full Causal LOB Forecaster Model with Explicit Masking",
-      "description": "Combine Siamese network, feature fusion, DAIN, and T-KAN head into single PyTorch model with explicit causal masking in attention mechanisms.",
+      "id": "CAUSAL-001",
+      "title": "Implement CausalDAIN for prefix-only normalization",
+      "description": "Replace current DAIN with a strictly causal variant that computes normalization statistics (mean/std) only from timesteps 0..t (inclusive) for each timestep t, ensuring no future information leaks. Must integrate with existing normalization interface.",
       "acceptance_criteria": [
-        "Model takes bid_data, ask_data, and macro_data as inputs.",
-        "Outputs multi-step forecasts with correct dimensions.",
-        "Explicit causal_mask parameter added to attention layers.",
-        "Model passes causality test: output unchanged when future inputs are perturbed."
+        "CausalDAIN class implements same interface as existing DAIN",
+        "Normalization at timestep t uses only prefix x[:, :t+1] for statistics",
+        "Forward pass produces same output shape as original DAIN",
+        "Gradient flow remains correct for training"
       ],
-      "verification": "python -c \"import sys; import torch; sys.path.insert(0, 'src/models'); from causal_lob_forecaster import CausalLOBForecaster; model = CausalLOBForecaster(bid_ask_dim=5, macro_dim=8, hidden_dims=[32, 64], horizon=5); bid = torch.randn(2, 20, 5); ask = torch.randn(2, 20, 5); macro = torch.randn(2, 20, 8); out1 = model(bid, ask, macro); bid[:, 10:, :] = torch.randn_like(bid[:, 10:, :]); out2 = model(bid, ask, macro); assert torch.allclose(out1[:, :10, :], out2[:, :10, :]), 'Causality violated!'; print('Causality test passed')\"",
-      "files_touched": [
-        "src/models/causal_lob_forecaster.py"
-      ],
-      "status": "done",
-      "attempts": 2,
-      "errors": [
-        "Command failed with code 1:\nTraceback (most recent call last):\n  File \"<string>\", line 1, in <module>\nAssertionError: Causality violated!\n",
-        "Command failed with code 1:\nTraceback (most recent call last):\n  File \"<string>\", line 1, in <module>\nAssertionError: Causality violated!\n"
-      ]
-    },
-    {
-      "id": "ML-006",
-      "title": "Update Model Registry and Training Configuration",
-      "description": "Register the new CausalLOBForecaster model in the model registry and update training script with causal loss functions.",
-      "acceptance_criteria": [
-        "Model added to src/models/registry.py with unique name 'causal_lob_forecaster'.",
-        "train.py supports causal training with teacher forcing.",
-        "Configuration includes causal_mask=True parameter."
-      ],
-      "verification": "python -c \"import sys; sys.path.insert(0, 'src/models'); from registry import get_model; model = get_model('causal_lob_forecaster', input_dim=10, horizon=5, causal_mask=True); print('Model with causal masking retrieved'); assert hasattr(model, 'causal_mask'), 'Causal mask attribute missing'\"",
-      "files_touched": [
-        "src/models/registry.py",
-        "src/train.py",
-        "configs/causal_lob.yaml"
-      ],
-      "status": "done"
-    },
-    {
-      "id": "ML-007",
-      "title": "Create Comprehensive Causality Tests",
-      "description": "Write pytest tests verifying causality property through forward/backward pass analysis and gradient flow inspection.",
-      "acceptance_criteria": [
-        "Test file exists at tests/test_causal_lob_forecaster.py.",
-        "Tests cover: 1) Future perturbation invariance 2) Gradient causality 3) Training step isolation.",
-        "All tests pass with 100% causality verification."
-      ],
-      "verification": "python -m pytest tests/test_causal_lob_forecaster.py::test_causality_invariance tests/test_causal_lob_forecaster.py::test_gradient_causality -v --tb=short",
-      "files_touched": [
-        "tests/test_causal_lob_forecaster.py"
-      ],
+      "verification": "Unit test: generate random sequence, compute CausalDAIN output, manually verify each timestep's statistics match prefix-only calculation.",
       "status": "todo"
     },
     {
-      "id": "ML-008",
-      "title": "Implement Causal Attention Masking in T-KAN Head",
-      "description": "Modify existing T-KAN implementation to include explicit causal masking preventing information flow from future to past.",
+      "id": "CAUSAL-002",
+      "title": "Enforce causal masks in all attention/T-KAN layers",
+      "description": "Audit all attention and T-KAN layers in CausalLOBForecaster (and any subcomponents) to ensure strict causal masking: each timestep t can only attend to timesteps <= t. Replace any full-context attention with causal variants.",
       "acceptance_criteria": [
-        "T-KAN attention layers include triangular causal mask.",
-        "Mask is applied during both training and inference.",
-        "Memory-efficient implementation for long sequences."
+        "All attention layers use torch.tril causal masks",
+        "T-KAN temporal convolutions use causal padding (pad left only)",
+        "No global pooling operations that aggregate future information",
+        "Siamese feature extractor processes each timestep independently"
       ],
-      "verification": "python -c \"import sys; sys.path.insert(0, 'src/models'); from t_kan_heads import T_KANHead; head = T_KANHead(input_dim=64, horizon=5, causal_mask=True); test_input = torch.randn(2, 20, 64); output = head(test_input); print('Causal T-KAN head operational'); assert output.shape == (2, 5, 1)\"",
-      "files_touched": [
-        "src/models/t_kan_heads.py"
+      "verification": "Component test: for each layer, corrupt future inputs and verify early outputs unchanged (max diff < 1e-6).",
+      "status": "todo"
+    },
+    {
+      "id": "CAUSAL-003",
+      "title": "Integrate causal components into CausalLOBForecaster",
+      "description": "Replace existing DAIN and any non-causal layers in ML-005 CausalLOBForecaster with the causal versions from CAUSAL-001 and CAUSAL-002. Update model initialization and forward pass accordingly.",
+      "acceptance_criteria": [
+        "CausalLOBForecaster uses CausalDAIN instead of DAIN",
+        "All submodules (attention, T-KAN, fusion) are causal",
+        "Model maintains same input/output interface",
+        "Training mode still works with causal constraints"
       ],
+      "verification": "Run full model forward pass with fixed seeds, compare outputs before/after future corruption (early 10 timesteps must match within 1e-5).",
+      "status": "todo"
+    },
+    {
+      "id": "CAUSAL-004",
+      "title": "Add rigorous causality verification test",
+      "description": "Create pytest test that constructs CausalLOBForecaster in eval mode with fixed seeds, runs 'corrupt future timesteps' test, and checks early outputs remain unchanged within explicit tolerance (atol=1e-5, rtol=1e-3).",
+      "acceptance_criteria": [
+        "Test sets torch manual seed and model.eval()",
+        "Test corrupts inputs after timestep 10 by adding noise",
+        "Checks torch.allclose(out1[:, :10, :], out2[:, :10, :], atol=1e-5, rtol=1e-3)",
+        "Test passes only if causality holds"
+      ],
+      "verification": "Run pytest src/models/test_causality.py -v and see test pass.",
+      "status": "todo"
+    },
+    {
+      "id": "CAUSAL-005",
+      "title": "Regenerate models and run full council verification",
+      "description": "After implementing causal fixes, regenerate ML-005 (CausalLOBForecaster) and ML-007 (T_KAN) code, then run council verification to ensure causality test passes and existing functionality remains intact.",
+      "acceptance_criteria": [
+        "Council run completes without crashes (exit_code=0)",
+        "Causality verification test passes",
+        "Other existing tests (e.g., training step) still pass",
+        "Model performance metrics remain within acceptable bounds"
+      ],
+      "verification": "Run full council script and check exit code 0 with all tests passing.",
       "status": "todo"
     }
-  ]
+  ],
+  "total_items": 5
 }
