@@ -45,12 +45,15 @@ class AgentProfile:
     metric_focus: Optional[str] = None
     kpi_history: List[Dict[str, Any]] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
+    # Optional per-agent self-reflection / rubric hint injected into prompts.
+    self_reflection: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AgentProfile":
+        # Extra keys in older JSON are ignored by dataclasses when fields exist with defaults.
         return cls(**data)
 
     def to_prompt_blob(self) -> str:
@@ -66,6 +69,10 @@ class AgentProfile:
             f"Primary KPI focus: {self.metric_focus}." if self.metric_focus else "Primary KPI focus: project-level success."
         )
 
+        self_reflection_block = ""
+        if self.self_reflection:
+            self_reflection_block = "\nSelf-reflection guidelines:\n" + self.self_reflection.strip()
+
         return textwrap.dedent(
             f"""
             [AGENT PROFILE]
@@ -75,6 +82,7 @@ class AgentProfile:
             Expertise: {expertise_str}
             Typical files: {files_str}
             {metric_line}
+            {self_reflection_block}
 
             Historical learnings:
             {notes_str}

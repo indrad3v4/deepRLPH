@@ -19,22 +19,22 @@ logger = logging.getLogger(__name__)
 
 class AgentIteration:
     """Execute single PRD item through agent."""
-    
+
     def __init__(
         self,
         agent_coordinator: AgentCoordinator,
         execution_engine: ExecutionEngine,
         prompt_generator: PromptGenerator,
-        agent_id: str = "deepseek-coder"
+        agent_id: str = "deepseek-coder",
     ):
         self.agent_coordinator = agent_coordinator
         self.execution_engine = execution_engine
         self.prompt_generator = prompt_generator
         self.agent_id = agent_id
-    
+
     def execute_item(self, item: PRDItem, context: Dict[str, Any]) -> Dict[str, Any]:
         """Execute single PRD item.
-        
+
         Returns:
             Dict with:
                 - success: bool
@@ -43,27 +43,27 @@ class AgentIteration:
                 - files_modified: List[str]
         """
         logger.info(f"Starting execution of {item.item_id}: {item.title}")
-        
+
         # Mark item as in progress
         item.mark_in_progress(self.agent_id)
-        
+
         try:
             # Generate prompt for item
             prompt = self._generate_item_prompt(item, context)
-            
+
             # Execute through agent coordinator
             agent_result = self.agent_coordinator.execute_task(
                 task_description=prompt,
-                context=context
+                context=context,
             )
-            
+
             if agent_result.get("success"):
                 logger.info(f"✅ {item.item_id} agent execution succeeded")
                 return {
                     "success": True,
                     "output": agent_result.get("output", ""),
                     "error": None,
-                    "files_modified": agent_result.get("files_modified", [])
+                    "files_modified": agent_result.get("files_modified", []),
                 }
             else:
                 error_msg = agent_result.get("error", "Unknown error")
@@ -72,9 +72,9 @@ class AgentIteration:
                     "success": False,
                     "output": agent_result.get("output", ""),
                     "error": error_msg,
-                    "files_modified": []
+                    "files_modified": [],
                 }
-        
+
         except Exception as e:
             error_msg = f"Exception during execution: {str(e)}"
             logger.error(f"❌ {item.item_id} exception: {e}", exc_info=True)
@@ -82,9 +82,9 @@ class AgentIteration:
                 "success": False,
                 "output": "",
                 "error": error_msg,
-                "files_modified": []
+                "files_modified": [],
             }
-    
+
     def _generate_item_prompt(self, item: PRDItem, context: Dict[str, Any]) -> str:
         """Generate prompt for PRD item."""
         prompt_parts = [
@@ -92,17 +92,19 @@ class AgentIteration:
             "",
             "### Acceptance Criteria",
         ]
-        
+
         for i, criterion in enumerate(item.acceptance_criteria, 1):
             prompt_parts.append(f"{i}. {criterion}")
-        
-        prompt_parts.extend([
-            "",
-            "### Context",
-            f"Project: {context.get('project_id', 'Unknown')}",
-            f"Priority: {item.priority}",
-        ])
-        
+
+        prompt_parts.extend(
+            [
+                "",
+                "### Context",
+                f"Project: {context.get('project_id', 'Unknown')}",
+                f"Priority: {item.priority}",
+            ]
+        )
+
         if item.files_touched:
             prompt_parts.extend([
                 "",
@@ -110,19 +112,28 @@ class AgentIteration:
             ])
             for file_path in item.files_touched:
                 prompt_parts.append(f"- {file_path}")
-        
+
         if item.verification_command:
-            prompt_parts.extend([
+            prompt_parts.extend(
+                [
+                    "",
+                    "### Verification",
+                    f"After implementation, this will be verified with: `{item.verification_command}`",
+                ]
+            )
+
+        # Meta-guidance to push the agent toward self-reflection and disciplined loops
+        prompt_parts.extend(
+            [
                 "",
-                "### Verification",
-                f"After implementation, this will be verified with: `{item.verification_command}`",
-            ])
-        
-        prompt_parts.extend([
-            "",
-            "### Instructions",
-            "Implement the above requirements. Ensure all acceptance criteria are met.",
-            "Write clean, tested, documented code.",
-        ])
-        
+                "### Instructions",
+                "Implement the above requirements. Ensure all acceptance criteria are met.",
+                "Write clean, tested, documented code.",
+                "Before coding, briefly plan your approach against a 5–7 point rubric ",
+                "(correctness, tests, readability, safety, performance, alignment with PRD, reversibility).",
+                "Use tools to inspect only the files you need, apply minimal edits, then run the verification command once.",
+                "If you cannot satisfy the criteria within a small number of careful changes, explain why and stop.",
+            ]
+        )
+
         return "\n".join(prompt_parts)
