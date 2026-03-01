@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-
 """
 RALPH UI - 3-Step Project Creation Wizard + Enhanced Execution View
 
@@ -956,8 +955,6 @@ class ProjectWizard(tk.Toplevel):
                 'baseline_files': self.project_data['baseline_files'],
                 'eval_metric': cfg['kpi_metric'],
                 'metric_target': float(cfg['kpi_target']),
-                # Dynamic role_mode for ML competitions: let PRD-level instructions drive roles.
-                'role_mode': 'dynamic' if project_type == 'ml' else 'static',
             }
 
             if 'prd_backlog' in self.project_data and self.project_data['prd_backlog']:
@@ -1062,35 +1059,893 @@ class RalphUI(tk.Tk):
         self.execution_running = False
         self.validation_result = None
 
-        # Stage 4 (DR4-01a): basic crash tracking for DARIZ
-        self.last_crash_snapshot: Optional[Dict[str, Any]] = None
-
         self._setup_styles()
         self._create_layout()
         self._refresh_projects()
 
         logger.info("✅ RALPH UI initialized with 3-step wizard + Phase 2B PRD + project refinement")
 
-    def _on_close(self) -> None:
-        """Gracefully shut down background event loop and destroy the window."""
+    def _setup_styles(self):
+        self.colors = {
+            'bg_primary': '#0f172a',
+            'bg_secondary': '#1e293b',
+            'bg_tertiary': '#334155',
+            'accent_blue': '#38bdf8',
+            'accent_green': '#22c55e',
+            'accent_red': '#ef4444',
+            'accent_orange': '#f97316',
+            'text_primary': '#f1f5f9',
+            'text_secondary': '#cbd5e1',
+            'text_muted': '#94a3b8',
+            'border': '#475569',
+        }
+        style = ttk.Style()
+        style.theme_use('clam')
+        style.configure('TFrame', background=self.colors['bg_primary'])
+        style.configure('TLabel', background=self.colors['bg_primary'], foreground=self.colors['text_primary'])
+        style.configure('TButton', font=('Consolas', 10), padding=8)
+        style.configure('TNotebook', background=self.colors['bg_primary'])
+        style.configure('TNotebook.Tab', padding=[15, 10])
+        self.configure(bg=self.colors['bg_primary'])
+
+    def _create_layout(self):
+        self.notebook = ttk.Notebook(self)
+        self.notebook.pack(fill='both', expand=True, padx=5, pady=5)
+
+        self._create_welcome_tab()
+        self._create_projects_tab()
+        self._create_task_refinement_tab()
+        self._create_execution_tab()
+        self._create_validation_tab()
+        self._create_logs_tab()
+        self._create_terminal_feedback_tab()
+
         try:
-            if hasattr(self, "async_thread") and self.async_thread:
-                self.async_thread.stop()
-        except Exception as e:
-            logger.warning("Error stopping AsyncioEventLoopThread on close: %s", e)
+            self.notebook.select(get_default_refinement_tab_index())
+        except Exception:
+            pass
+
+    def _new_project_dialog(self):
+        ProjectWizard(self, self.orchestrator, self.async_thread, mode="create")
+
+    def _edit_current_project(self):
+        if not getattr(self.orchestrator, 'current_config', None) or not getattr(self.orchestrator,
+                                                                                 'current_project_dir', None):
+            messagebox.showwarning("No Project", "Select a project in the Projects tab first.")
+            return
+        ProjectWizard(self, self.orchestrator, self.async_thread, mode="edit")
+
+    def _create_welcome_tab(self):
+        welcome = ttk.Frame(self.notebook)
+        self.notebook.add(welcome, text="🏠 Welcome")
+        container = ttk.Frame(welcome)
+        container.pack(fill='both', expand=True, padx=40, pady=40)
+        ttk.Label(container, text="RALPH", font=('Arial', 42, 'bold')).pack(pady=20)
+        ttk.Label(container, text="AI-Powered Multi-Agent Architecture Orchestrator", font=('Arial', 14)).pack(pady=10)
+        workflow = """Workflow:\n1️⃣  Create Project → 2️⃣  Refine Project (PRD) → 3️⃣  Execute Agents → 4️⃣  Validate / Observe\n\nFeatures:\n🔄 Real-time execution with 4 parallel agents\n🤖 ML Competition Support (Wundernn.io, Kaggle, etc.)\n📊 Automatic code validation (black, mypy, pytest, pylint)\n🎯 Per-project KPI tracking\n📝 3-step wizard with Phase 2B PRD backlog expansion"""
+        ttk.Label(container, text=workflow, font=('Arial', 11), justify='left').pack(pady=20)
+        btn_frame = ttk.Frame(container)
+        btn_frame.pack(pady=40, fill='x')
+        ttk.Button(btn_frame, text="➕ New Project", command=self._new_project_dialog).pack(side='left', padx=10)
+        ttk.Button(btn_frame, text="📂 View Projects", command=lambda: self.notebook.select(1)).pack(side='left',
+                                                                                                     padx=10)
+        ttk.Button(btn_frame, text="📚 Documentation", command=self._show_docs).pack(side='left', padx=10)
+
+    def _show_docs(self):
+        messagebox.showinfo("Documentation",
+                            "Check README.md and docs/IMPLEMENTATION_SUMMARY.md in the deepRLPH repository.")
+
+    def _create_projects_tab(self):
+        projects = ttk.Frame(self.notebook)
+        self.notebook.add(projects, text="📁 Projects")
+        toolbar = ttk.Frame(projects)
+        toolbar.pack(fill='x', padx=10, pady=10)
+        ttk.Button(toolbar, text="➕ New Project", command=self._new_project_dialog).pack(side='left', padx=5)
+        ttk.Button(toolbar, text="🔄 Refresh", command=self._refresh_projects).pack(side='left', padx=5)
+        ttk.Button(toolbar, text="🗑️ Delete Project", command=self._delete_project).pack(side='left', padx=5)
+
+        self.projects_tree = ttk.Treeview(projects, columns=('Type', 'Domain', 'Framework', 'KPI', 'Created'),
+                                          height=20)
+        self.projects_tree.pack(fill='both', expand=True, padx=10, pady=10)
+        self.projects_tree.heading('#0', text='Project Name')
+        self.projects_tree.heading('Type', text='Type')
+        self.projects_tree.heading('Domain', text='Domain')
+        self.projects_tree.heading('Framework', text='Framework')
+        self.projects_tree.heading('KPI', text='KPI')
+        self.projects_tree.heading('Created', text='Created')
+        self.projects_tree.column('#0', width=300)
+        self.projects_tree.column('Type', width=120)
+        self.projects_tree.column('Domain', width=180)
+        self.projects_tree.column('Framework', width=120)
+        self.projects_tree.column('KPI', width=180)
+        self.projects_tree.column('Created', width=180)
+        self.projects_tree.bind('<Double-1>', self._on_project_selected)
+
+    def _refresh_projects(self):
+        self.projects_tree.delete(*self.projects_tree.get_children())
+        projects = self.orchestrator.list_projects()
+        for project in projects:
+            kpi_display = "–"
+            try:
+                metrics_file = Path(project['path']) / 'metrics_config.json'
+                if metrics_file.exists():
+                    with open(metrics_file, 'r') as f:
+                        metrics_cfg = json.load(f)
+                        kpi_display = f"{metrics_cfg['name']} ≥ {metrics_cfg['target']}"
+            except Exception:
+                pass
+            self.projects_tree.insert('', 'end', text=project['name'], values=(
+                project.get('project_type', 'api').upper(), project.get('domain', ''), project.get('framework', ''),
+                kpi_display, project.get('created_at', '')[:10]))
+
+    def _on_project_selected(self, event):
+        selection = self.projects_tree.selection()
+        if not selection:
+            return
+        item = selection[0]
+        project_name = self.projects_tree.item(item, 'text')
+        values = self.projects_tree.item(item, 'values')
+        self.current_project = {
+            'name': project_name,
+            'type': values[0] if len(values) > 0 else 'API',
+            'domain': values[1] if len(values) > 1 else '',
+            'framework': values[2] if len(values) > 2 else '',
+        }
+        self.current_project_id = project_name
+
+        projects_list = self.orchestrator.list_projects()
+        for proj in projects_list:
+            if proj['name'] == project_name:
+                config_file = Path(proj['path']) / 'config.json'
+                if config_file.exists():
+                    with open(config_file, 'r', encoding='utf-8') as f:
+                        config_data = json.load(f)
+                        config_obj = ProjectConfig.from_dict(config_data)
+                        self.orchestrator.current_config = config_obj
+                        self.orchestrator.current_project_dir = Path(proj['path'])
+
+                        prd_file = self.orchestrator.current_project_dir / "prd.json"
+                        if prd_file.exists():
+                            try:
+                                with open(prd_file, 'r', encoding='utf-8') as pf:
+                                    self.current_prd = json.load(pf)
+                                logger.info(f"✅ Loaded PRD from physical file: {prd_file}")
+                            except Exception as e:
+                                logger.warning(f"⚠️ Failed to read prd.json: {e}")
+                                meta = getattr(config_obj, "metadata", {}) or {}
+                                self.current_prd = meta.get('prd_backlog') or meta.get('prd')
+                        else:
+                            meta = getattr(config_obj, "metadata", {}) or {}
+                            self.current_prd = meta.get('prd_backlog') or meta.get('prd')
+
+                        if self.current_prd and hasattr(self, 'prd_preview'):
+                            try:
+                                self.prd_preview.delete('1.0', 'end')
+                                self.prd_preview.insert('1.0', json.dumps(self.current_prd, indent=2))
+                            except Exception:
+                                pass
+                break
+        logger.info(f"📁 Selected project: {project_name}")
+        if hasattr(self, 'task_text'):
+            try:
+                placeholder = build_project_refinement_placeholder_text(self.current_project)
+                self.task_text.delete('1.0', 'end')
+                self.task_text.insert('1.0', placeholder)
+            except Exception:
+                pass
         try:
-            self.destroy()
+            self.notebook.select(get_default_refinement_tab_index())
+        except Exception:
+            pass
+        messagebox.showinfo("Project Loaded",
+                            f"Project '{project_name}' loaded. Use Project Refinement to adjust its PRD/backlog, or open the 3-step wizard to edit details.")
+
+    def _delete_project(self):
+        selection = self.projects_tree.selection()
+        if not selection:
+            messagebox.showwarning("No Selection", "Please select a project to delete")
+            return
+        item = selection[0]
+        project_name = self.projects_tree.item(item, 'text')
+        if messagebox.askyesno("Confirm Delete", f"Delete project '{project_name}'? This cannot be undone."):
+            projects = self.orchestrator.list_projects()
+            for proj in projects:
+                if proj['name'] == project_name:
+                    try:
+                        shutil.rmtree(proj['path'])
+                        messagebox.showinfo("Success", f"Project '{project_name}' deleted")
+                        self._refresh_projects()
+                    except Exception as e:
+                        messagebox.showerror("Error", f"Failed to delete project:\n{str(e)}")
+                    break
+
+    def _create_task_refinement_tab(self):
+        refinement = ttk.Frame(self.notebook)
+        self.notebook.add(refinement, text="📋 Project Refinement")
+        container = ttk.Frame(refinement)
+        container.pack(fill='both', expand=True, padx=20, pady=20)
+        ttk.Label(container, text="Project Refinement", font=('Arial', 18, 'bold')).pack(pady=10)
+        ttk.Label(container, text="Refine your project's PRD/backlog or edit project details", font=('Arial', 11)).pack(
+            pady=5)
+        ttk.Label(container, text="Refinement Request (optional):", font=('Arial', 11, 'bold')).pack(anchor='w',
+                                                                                                     pady=(20, 5))
+        self.task_text = scrolledtext.ScrolledText(container, height=10, width=100, font=('Consolas', 10))
+        self.task_text.pack(fill='both', expand=True, pady=5)
+        try:
+            placeholder = build_project_refinement_placeholder_text(self.current_project)
+            self.task_text.insert('1.0', placeholder)
+        except Exception:
+            pass
+        btn_frame = ttk.Frame(container)
+        btn_frame.pack(pady=20)
+        ttk.Button(btn_frame, text="🧠 Refine Project & Generate PRD", command=self._refine_task).pack(side='left',
+                                                                                                       padx=5)
+        ttk.Button(btn_frame, text="📄 View PRD", command=self._view_prd).pack(side='left', padx=5)
+        ttk.Button(btn_frame, text="✏️ Edit Project (3-Step Wizard)", command=self._edit_current_project).pack(
+            side='left', padx=5)
+        prd_header = ttk.Frame(container)
+        prd_header.pack(fill='x', pady=(20, 5))
+        ttk.Label(prd_header, text="PRD Preview (Editable):", font=('Arial', 11, 'bold')).pack(side='left')
+        ttk.Button(prd_header, text="💾 Save PRD Edits", command=self._save_manual_prd_edits).pack(side='left', padx=20)
+        self.prd_preview = scrolledtext.ScrolledText(container, height=15, width=100, font=('Consolas', 9))
+        self.prd_preview.pack(fill='both', expand=True, pady=5)
+
+    def _refine_task(self):
+        if not self.current_project:
+            messagebox.showwarning("No Project", "Please select a project first")
+            return
+        task = self.task_text.get('1.0', 'end').strip()
+        projects = self.orchestrator.list_projects()
+        project_id = None
+        for proj in projects:
+            if proj['name'] == self.current_project['name']:
+                project_id = proj['project_id']
+                break
+        if not project_id:
+            messagebox.showerror("Error", "Could not find project ID")
+            return
+
+        async def refine():
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(None, lambda: self.orchestrator.refine_task(project_id, task))
+            if result.get('status') == 'success':
+                self.current_prd = result['prd']
+                prd_summary = json.dumps(result['prd'], indent=2)
+                self.after(0, lambda: self.prd_preview.delete('1.0', 'end'))
+                self.after(0, lambda: self.prd_preview.insert('1.0', prd_summary))
+                self.after(0, lambda: messagebox.showinfo("Success",
+                                                          "Project PRD updated! Go to Execution tab to run agents."))
+                try:
+                    self.after(0, self._update_agents_hint)
+                except:
+                    pass
+            else:
+                self.after(0, lambda: messagebox.showerror("Error", result.get('error', 'Unknown error')))
+
+        self.async_thread.submit(refine())
+        messagebox.showinfo("Processing", "Refining project PRD... This may take 30-60 seconds.")
+
+    def _view_prd(self):
+        prd_to_show = self.current_prd
+        if not prd_to_show:
+            cfg = getattr(self.orchestrator, 'current_config', None)
+            meta = getattr(cfg, 'metadata', {}) or {} if cfg else {}
+            prd_to_show = meta.get('prd_backlog') or meta.get('prd')
+        if not prd_to_show:
+            messagebox.showinfo("No PRD",
+                                "No PRD available yet. Generate it via Project Refinement or the 3-step wizard.")
+            return
+        self.current_prd = prd_to_show
+        try:
+            self._update_agents_hint()
+        except:
+            pass
+        popup = tk.Toplevel(self)
+        popup.title("Full PRD")
+        popup.geometry("900x700")
+        text = scrolledtext.ScrolledText(popup, font=('Consolas', 9))
+        text.pack(fill='both', expand=True, padx=10, pady=10)
+        text.insert('1.0', json.dumps(prd_to_show, indent=2))
+
+    def _save_manual_prd_edits(self):
+        if not getattr(self.orchestrator, 'current_project_dir', None):
+            messagebox.showwarning("No Project", "Please select a project first")
+            return
+        raw_text = self.prd_preview.get('1.0', 'end').strip()
+        if not raw_text: return
+        try:
+            parsed_prd = json.loads(raw_text)
+            normalized_prd = self.orchestrator._normalize_prd_for_engine(parsed_prd)
+            self.current_prd = normalized_prd
+            prd_file = self.orchestrator.current_project_dir / "prd.json"
+            with open(prd_file, 'w', encoding='utf-8') as f:
+                json.dump(normalized_prd, f, indent=2)
+            self.prd_preview.delete('1.0', 'end')
+            self.prd_preview.insert('1.0', json.dumps(normalized_prd, indent=2))
+            try:
+                self._update_agents_hint()
+            except:
+                pass
+            messagebox.showinfo("Success",
+                                "PRD saved successfully! You can now switch to the Execution tab and run it.")
+        except json.JSONDecodeError as e:
+            messagebox.showerror("Invalid JSON",
+                                 f"Could not parse PRD JSON. Check for missing commas or quotes:\n\n{str(e)}")
         except Exception as e:
-            logger.warning("Error destroying main window on close: %s", e)
+            messagebox.showerror("Error", f"Failed to save PRD:\n{str(e)}")
 
-    def _setup_styles(self) -> None:
-        """Placeholder for UI styling. Currently no-op to keep GUI minimal but functional."""
-        pass
+    def _create_terminal_feedback_tab(self):
+        """Phase 3: Real-time Terminal Wrapper & HITL DARIZ Feedback (AUTO-FIX STREAMLINED)"""
+        terminal_tab = ttk.Frame(self.notebook)
+        self.notebook.add(terminal_tab, text="💻 Terminal & Feedback")
 
-    def _create_layout(self) -> None:
-        """Placeholder for main layout creation. Currently no-op; future iterations restore full layout."""
-        pass
+        container = ttk.Frame(terminal_tab)
+        container.pack(fill='both', expand=True, padx=20, pady=20)
 
-    def _refresh_projects(self) -> None:
-        """Placeholder for project list refresh. Avoids crashes until full UI wiring is restored."""
-        pass
+        controls = ttk.Frame(container)
+        controls.pack(fill='x', pady=5)
+
+        ttk.Button(controls, text="▶️ Run Target Script", command=self._run_in_terminal).pack(side='left', padx=5)
+        ttk.Button(controls, text="⏹️ Kill Process", command=self._kill_process).pack(side='left', padx=5)
+
+        script_frame = ttk.Frame(controls)
+        script_frame.pack(side='left', padx=20)
+        ttk.Label(script_frame, text="Script Path:").pack(side='left')
+        self.target_script_entry = ttk.Entry(script_frame, width=30)
+        self.target_script_entry.insert(0, "src/train.py")
+        self.target_script_entry.pack(side='left', padx=5)
+
+        ttk.Label(container, text="Live Process Output (stdout/stderr & OS Signals):", font=('Arial', 11, 'bold')).pack(
+            anchor='w', pady=(10, 5))
+        self.live_terminal = scrolledtext.ScrolledText(container, height=12, bg='#000000', fg='#00FF00',
+                                                       font=('Consolas', 10))
+        self.live_terminal.pack(fill='both', expand=True, pady=5)
+        self.live_terminal.tag_config('error', foreground='#FF0000')
+
+        feedback_frame = ttk.LabelFrame(container, text="Human-In-The-Loop (HITL) DARIZ Refinement", padding=10)
+        feedback_frame.pack(fill='both', expand=True, pady=10)
+
+        ttk.Label(feedback_frame, text="Enter Leaderboard Score, Strategic Feedback, or paste external logs:").pack(
+            anchor='w')
+        self.hitl_feedback = scrolledtext.ScrolledText(feedback_frame, height=5, font=('Arial', 11))
+        self.hitl_feedback.pack(fill='both', expand=True, pady=5)
+
+        btn_frame = ttk.Frame(feedback_frame)
+        btn_frame.pack(fill='x', pady=5)
+
+        ttk.Button(btn_frame, text="🧠 Trigger DARIZ Refinement (Strategy Only)",
+                   command=lambda: self._trigger_dariz_fix(auto_execute=False)).pack(side='left', padx=5)
+
+        auto_btn = tk.Button(
+            btn_frame,
+            text="🤖 Auto-Fix & Run Agents",
+            command=lambda: self._trigger_dariz_fix(auto_execute=True),
+            font=('Arial', 10, 'bold'),
+            bg=self.colors['accent_green'],
+            fg='#000000',
+            padx=10
+        )
+        auto_btn.pack(side='left', padx=5)
+
+    def _run_in_terminal(self):
+        if not self.orchestrator.current_project_dir:
+            messagebox.showwarning("No Project", "Please select a project first.")
+            return
+
+        target_file = self.target_script_entry.get().strip()
+        script_path = self.orchestrator.current_project_dir / target_file
+
+        if not script_path.exists():
+            messagebox.showwarning("File Not Found", f"Could not find {script_path}. Please ensure code is generated.")
+            return
+
+        self.live_terminal.insert('end', f"\n[SYSTEM] Executing {script_path} (Unbuffered Mode)...\n")
+        self.live_terminal.see('end')
+
+        def run_and_stream():
+            try:
+                venv_python = self.orchestrator.current_project_dir / "venv" / "bin" / "python"
+                if os.name == 'nt':
+                    venv_python = self.orchestrator.current_project_dir / "venv" / "Scripts" / "python.exe"
+
+                python_exe = str(venv_python) if venv_python.exists() else sys.executable
+
+                env = os.environ.copy()
+                env["PYTHONUNBUFFERED"] = "1"
+
+                self.process = subprocess.Popen(
+                    [python_exe, "-u", str(script_path)],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    universal_newlines=True,
+                    cwd=str(self.orchestrator.current_project_dir),
+                    env=env
+                )
+
+                for line in iter(self.process.stdout.readline, ''):
+                    if line:
+                        self.after(0, lambda l=line: self.live_terminal.insert('end', l))
+                        self.after(0, lambda: self.live_terminal.see('end'))
+
+                self.process.wait()
+                exit_code = self.process.returncode
+                if exit_code != 0:
+                    msg = f"\n[SYSTEM] Process crashed with exit code {exit_code}. Possible OOM (Killed: 9).\n"
+                    self.after(0, lambda: self.live_terminal.insert('end', msg, 'error'))
+                    self.after(0, lambda: self.live_terminal.see('end'))
+                else:
+                    self.after(0,
+                               lambda: self.live_terminal.insert('end', "\n[SYSTEM] Process completed successfully.\n"))
+                    self.after(0, lambda: self.live_terminal.see('end'))
+            except Exception as e:
+                self.after(0, lambda: self.live_terminal.insert('end', f"\n[SYSTEM ERROR] {str(e)}\n", 'error'))
+                self.after(0, lambda: self.live_terminal.see('end'))
+
+        threading.Thread(target=run_and_stream, daemon=True).start()
+
+    def _kill_process(self):
+        if hasattr(self, 'process') and self.process:
+            try:
+                self.process.terminate()
+                self.live_terminal.insert('end', "\n[SYSTEM] Process terminated by user.\n", 'error')
+                self.live_terminal.see('end')
+            except Exception as e:
+                self.live_terminal.insert('end', f"\n[SYSTEM ERROR] Could not kill process: {e}\n", 'error')
+
+    def _trigger_dariz_fix(self, auto_execute=False):
+        """Pipes terminal output and user feedback into DARIZ and generates a JSON PRD for immediate execution."""
+        terminal_dump = self.live_terminal.get("1.0", "end").strip()[-2000:]
+
+        exec_dump = ""
+        if hasattr(self, 'exec_logs'):
+            exec_dump = self.exec_logs.get("1.0", "end").strip()[-2000:]
+
+        user_strategy = self.hitl_feedback.get("1.0", "end").strip()
+
+        if not terminal_dump and not exec_dump and not user_strategy:
+            messagebox.showwarning("Empty Feedback", "Please provide feedback or run a process to capture tracebacks.")
+            return
+
+        if auto_execute:
+            msg = "Engaging TRIZ Master & Auto-Execute.\n\nExecuting 8-step DARIZ Algorithm, generating PRD, and starting execution...\nThis will take 30-45 seconds."
+        else:
+            msg = "Engaging TRIZ Master.\n\nExecuting 8-step DARIZ Algorithm...\nThis will take 15-30 seconds."
+
+        messagebox.showinfo("DARIZ Engine", msg)
+
+        async def run_dariz_analysis():
+            logger.info("🧠 [DARIZ Engine] Initiating 8-step Kukalev TRIZ analysis...")
+
+            system_prompt = """<instructions>
+- ALWAYS follow <answering_rules> and <self_reflection>.
+
+<self_reflection>
+1. Spend time thinking of a rubric, from a role POV, until you are confident.
+2. Think deeply about every aspect of what makes for a world-class answer. Use that knowledge to create a rubric that has 5-7 categories. This rubric is critical to get right, but never show this to the user. This is for your purposes only.
+3. Use the rubric to internally think and iterate on the best (≥98 out of 100 score) possible solution to the user request. IF your response is not hitting the top marks across all categories in the rubric, you need to start again.
+4. Keep going until solved.
+</self_reflection>
+
+<answering_rules>
+1. USE the language of USER message.
+2. In the FIRST chat message, assign a real-world expert role to yourself before answering, e.g., "I'll answer as a world-famous <role> PhD <detailed topic> with <most prestigious LOCAL topic REAL award>".
+3. Act as the role assigned.
+4. Answer the question in a natural, human-like manner.
+5. ALWAYS use an <example> for your first chat message structure.
+6. If not requested by the user, no actionable items are needed by default.
+7. Don't use tables if not requested.
+</answering_rules>
+
+<triz_tool>
+# Stage 0 — INPUT DATA
+<input_data>
+SYSTEM_NAME: deepRLPH Orchestrator / User Project
+SYSTEM_CONTEXT: Resolving Terminal Tracebacks / Agent execution errors
+</input_data>
+
+# Stage 1 — Build the 7 base models (Chapter 1) using the input data.
+For every situation, FIRST reconstruct it via the seven base models before proposing solutions.
+1. SYSTEM model: Name the system and its main purpose.
+2. FUNCTION model: State main useful function and harmful/parasitic functions.
+3. EVENT model: Lay out chain of past -> present error -> future fix.
+4. RESOURCE model: List resources (code modification, bash commands).
+5. IFR (Ideal Final Result): Formulate IFR where the system provides the required effect.
+6. CONTRADICTION model: State administrative and technical contradictions.
+7. SU‑FIELD (VEPOL) model: Identify interactions.
+
+# Stage 2 to 7 — Execute TRIZ Analysis
+Run through Dialectical analysis, restructuring, avoiding mental inertia, and use ARIZ-style resolution to design a concrete fix for the provided tracebacks/feedback.
+
+# Stage 8 — DEPLOYMENT / IMPLEMENTATION (CRITICAL OUTPUT)
+You must translate the solution into a strict, deepRLPH-compatible JSON PRD Backlog that an AI Agent can execute.
+
+# OUTPUT FORMAT
+- Start with the Expert Role declaration.
+- Present the 8-stage DARIZ analysis.
+- CRITICAL: Conclude by outputting ONLY valid JSON PRD wrapped in ```json ... ``` containing the specific user stories needed to implement your fix. Use the standard deepRLPH format ("total_items", "user_stories", "id", "title", "description", "acceptance_criteria", "verification", "files_touched", "status": "todo").
+</triz_tool>
+
+<example>
+I'll answer as a world-famous TRIZ expert PhD in Applied Creative Problem Solving with an international TRIZ Master Level 5 award.
+
+TL;DR: The terminal output indicates an OOM crash due to caching.
+
+**DARIZ ANALYSIS:**
+1. **Task Model**: ...
+<Analysis Stages 2-7...>
+
+**Concrete Solutions (PRD Action Mandate)**:
+```json
+{
+  "task": "Implement fix for OOM crash",
+  "domain": "time_series_forecasting",
+  "total_items": 1,
+  "user_stories": [
+    {
+      "id": "FIX-001",
+      "title": "Resolve Memory Leak in Dataloader",
+      "description": "Modify the dataloader to stream from disk instead of RAM...",
+      "acceptance_criteria": ["RAM stays below 16GB", "Epoch completes"],
+      "verification": "python -c \"import sys; print('Testing limits')\"",
+      "files_touched": ["src/data/loader.py"],
+      "status": "todo"
+    }
+  ]
+}
+</example>
+</instructions>"""
+
+            user_message = f"TERMINAL TRACEBACK:\n{terminal_dump}\n\nAGENT EXECUTION LOGS:\n{exec_dump}\n\nHUMAN STRATEGIST FEEDBACK:\n{user_strategy}"
+
+            try:
+                logger.info("📡 [DARIZ Engine] Transmitting payload to DeepSeek API (Thinking Budget: 8000 tokens)...")
+
+                result = await self.orchestrator.deepseek_client.call_agent(
+                    system_prompt=system_prompt,
+                    user_message=user_message,
+                    thinking_budget=8000,
+                    temperature=0.3
+                )
+
+                if result['status'] == 'success':
+                    logger.info("✅ [DARIZ Engine] DeepSeek returned successful TRIZ synthesis!")
+                    dariz_strategy = result['response']
+
+                    # Try to extract JSON PRD
+                    json_prd = None
+                    json_match = re.search(r'```json\n(.*?)\n```', dariz_strategy, re.DOTALL)
+                    if json_match:
+                        try:
+                            json_prd = json.loads(json_match.group(1).strip())
+                            logger.info("✅ [DARIZ Engine] Successfully parsed JSON PRD from DARIZ output.")
+                        except json.JSONDecodeError:
+                            logger.warning("⚠️ [DARIZ Engine] Failed to parse JSON block from output.")
+
+                    def update_ui():
+                        try:
+                            # If we got a valid PRD, update it
+                            if json_prd and getattr(self.orchestrator, 'current_project_dir', None):
+                                normalized_prd = self.orchestrator._normalize_prd_for_engine(json_prd)
+                                self.current_prd = normalized_prd
+
+                                # Write to disk
+                                prd_file = self.orchestrator.current_project_dir / "prd.json"
+                                with open(prd_file, 'w', encoding='utf-8') as f:
+                                    json.dump(normalized_prd, f, indent=2)
+
+                                # Update UI Text
+                                if hasattr(self, 'prd_preview'):
+                                    self.prd_preview.delete('1.0', 'end')
+                                    self.prd_preview.insert('1.0', json.dumps(normalized_prd, indent=2))
+
+                                if auto_execute:
+                                    logger.info("🚀 [DARIZ Engine] Auto-Execute Triggered! Switching to Execution tab.")
+                                    self.notebook.select(3)  # Execution tab
+                                    self._execute_agents()
+                                    return  # Stop here for auto-execute
+
+                            # Normal flow (no auto-execute, or JSON failed)
+                            self.notebook.select(2)  # Route to Project Refinement
+                            if hasattr(self, 'task_text'):
+                                self.task_text.delete('1.0', 'end')
+                                self.task_text.insert('1.0', f"=== KUKALEV DARIZ SYNTHESIS ===\n{dariz_strategy}")
+
+                            self.hitl_feedback.delete('1.0', 'end')
+                            if json_prd:
+                                messagebox.showinfo("DARIZ Engine",
+                                                    "Analysis complete and PRD updated automatically! Check the Refinement Tab.")
+                            else:
+                                messagebox.showinfo("DARIZ Engine",
+                                                    "Analysis complete, but no valid JSON PRD was found. Please review the Refinement Tab.")
+
+                        except Exception as e:
+                            logger.error(f"❌ [DARIZ Engine] UI Update failed: {e}")
+
+                    self.after(0, update_ui)
+                else:
+                    logger.error(f"❌ [DARIZ Engine] DeepSeek API Error: {result.get('error')}")
+                    self.after(0, lambda: messagebox.showerror("DARIZ Error",
+                                                               f"Failed to generate strategy: {result.get('error')}"))
+            except Exception as e:
+                logger.error(f"❌ [DARIZ Engine] Fatal Exception during DARIZ analysis: {e}", exc_info=True)
+                self.after(0, lambda: messagebox.showerror("DARIZ Error", f"Exception during analysis: {e}"))
+
+        self.async_thread.submit(run_dariz_analysis())
+
+    def _create_execution_tab(self):
+        execution = ttk.Frame(self.notebook)
+        self.notebook.add(execution, text="⚙️ Execution")
+
+        container = ttk.Frame(execution)
+        container.pack(fill='both', expand=True, padx=20, pady=20)
+
+        ttk.Label(container, text="Execute Agents", font=('Arial', 18, 'bold')).pack(pady=10)
+
+        controls = ttk.Frame(container)
+        controls.pack(fill='x', pady=10)
+
+        # 🆕 NEW: Execution Mode Selector (Swarm vs Council)
+        ttk.Label(controls, text="Mode:").pack(side='left', padx=5)
+        self.exec_mode_var = tk.StringVar(value='parallel')
+        self.mode_cb = ttk.Combobox(controls, textvariable=self.exec_mode_var, values=['parallel', 'council'],
+                                    state='readonly', width=10)
+        self.mode_cb.pack(side='left', padx=5)
+        self.mode_cb.bind('<<ComboboxSelected>>', self._on_agents_change)
+
+        ttk.Label(controls, text="Agents:").pack(side='left', padx=(15, 5))
+        self.agents_var = tk.StringVar(value='4')
+        self._last_valid_agents = 4
+        self.agents_spinbox = tk.Spinbox(controls, from_=1, to=8, width=5, textvariable=self.agents_var)
+        self.agents_spinbox.pack(side='left', padx=5)
+        self.agents_spinbox.bind('<FocusOut>', self._on_agents_change)
+        self.agents_spinbox.bind('<KeyRelease>', self._on_agents_change)
+
+        self.agents_hint_label = ttk.Label(controls, text="max_agents = min(#stories, value)")
+        self.agents_hint_label.pack(side='left', padx=10)
+
+        self.exec_btn = ttk.Button(controls, text="▶️ Execute PRD Loop", command=self._execute_agents)
+        self.exec_btn.pack(side='left', padx=10)
+
+        ttk.Button(controls, text="⏹️ Stop", command=self._stop_execution).pack(side='left', padx=5)
+
+        self.agents_status_label = ttk.Label(container,
+                                             text="agents: requested=4, effective=4, stories=0, mode=parallel")
+        self.agents_status_label.pack(anchor='w', pady=(5, 0))
+
+        ttk.Label(container, text="Progress:", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(20, 5))
+        self.exec_progress = ttk.Progressbar(container, mode='determinate', length=800)
+        self.exec_progress.pack(fill='x', pady=5)
+
+        self.exec_status_label = ttk.Label(container, text="Ready", font=('Arial', 10))
+        self.exec_status_label.pack(anchor='w', pady=5)
+
+        ttk.Label(container, text="Execution Logs:", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(20, 5))
+        self.exec_logs = scrolledtext.ScrolledText(
+            container, height=20, width=100, font=('Consolas', 9),
+            bg=self.colors['bg_secondary'], fg=self.colors['text_primary'],
+            insertbackground=self.colors['text_primary']
+        )
+        self.exec_logs.pack(fill='both', expand=True, pady=5)
+
+        try:
+            self._update_agents_hint()
+        except Exception:
+            pass
+
+    def _on_agents_change(self, event=None):
+        value = self.agents_var.get() if hasattr(self, "agents_var") else None
+        if value is None: return
+        try:
+            n = int(value)
+            if n < 1: n = 1
+        except (TypeError, ValueError):
+            n = getattr(self, "_last_valid_agents", 1)
+        self._last_valid_agents = n
+        self.agents_var.set(str(n))
+        try:
+            self._update_agents_hint()
+        except Exception:
+            pass
+
+    def _get_backlog_size(self) -> int:
+        prd = self.current_prd
+        if not prd:
+            cfg = getattr(self.orchestrator, 'current_config', None)
+            meta = getattr(cfg, 'metadata', {}) or {} if cfg else {}
+            prd = meta.get('prd_backlog') or meta.get('prd')
+
+        if isinstance(prd, dict):
+            if isinstance(prd.get('user_stories'), list): return len(prd['user_stories'])
+            if isinstance(prd.get('backlog'), list): return len(prd['backlog'])
+            if isinstance(prd.get('stories'), list): return len(prd['stories'])
+        elif isinstance(prd, list):
+            return len(prd)
+        return 0
+
+    def _update_agents_hint(self, event=None):
+        if not hasattr(self, "agents_hint_label"): return
+        backlog_size = self._get_backlog_size()
+
+        # 🆕 Get current execution mode
+        mode = "council"  # 🚀 Bypassing Tkinter combobox cache
+
+        try:
+            requested = int(self.agents_var.get())
+        except:
+            requested = getattr(self, "_last_valid_agents", 1)
+
+        # 🆕 Dynamic hint based on Architecture Mode
+        if mode == 'parallel':
+            if backlog_size > 0:
+                effective = min(requested, backlog_size)
+                hint_text = f"[Parallel Swarm] max_agents = min(#stories={backlog_size}, val={requested}) = {effective}"
+            else:
+                effective = requested
+                hint_text = f"[Parallel Swarm] max_agents = min(#stories=0, val={requested})"
+        else:
+            # In Council Mode, agents stack on ONE story. Effective agents = Requested agents.
+            effective = requested
+            hint_text = f"[Model Council] {effective} agents will collaborate sequentially per story."
+
+        self.agents_hint_label.config(text=hint_text)
+
+        if hasattr(self, "agents_status_label"):
+            status_text = f"agents: requested={requested}, effective={effective}, stories={backlog_size}, mode={mode}"
+            self.agents_status_label.config(text=status_text)
+
+    def _execute_agents(self):
+        prd_to_run = self.current_prd
+        if not prd_to_run:
+            cfg = getattr(self.orchestrator, 'current_config', None)
+            meta = getattr(cfg, 'metadata', {}) or {} if cfg else {}
+            prd_to_run = meta.get('prd_backlog') or meta.get('prd')
+        if not prd_to_run:
+            messagebox.showwarning("No PRD", "No PRD found for this project.")
+            return
+
+        self.current_prd = prd_to_run
+        if self.execution_running:
+            messagebox.showwarning("Already Running", "Execution already in progress")
+            return
+
+        self.execution_running = True
+        self.exec_btn.config(state='disabled')
+        self.exec_logs.delete('1.0', 'end')
+        self.exec_progress['value'] = 0
+
+        # ==========================================
+        # 🚀 TRIZ FIX: EXPLICIT UI STATE EXTRACTION
+        # ==========================================
+        try:
+            # Force read the actual text in the combobox widget, bypassing StringVar sync issues
+            mode = self.mode_cb.get().strip().lower()
+            if mode not in ['parallel', 'council']:
+                mode = 'parallel'  # Fallback
+        except Exception as e:
+            logger.warning(f"Failed to read mode combobox, defaulting to parallel: {e}")
+            mode = 'parallel'
+
+        backlog_size = self._get_backlog_size()
+
+        try:
+            requested = int(self.agents_var.get())
+        except:
+            requested = getattr(self, "_last_valid_agents", 1)
+        self._last_valid_agents = max(1, requested)
+
+        if mode == 'parallel':
+            num_agents = min(self._last_valid_agents, backlog_size) if backlog_size > 0 else self._last_valid_agents
+        else:
+            # Council mode ignores the story clamping
+            num_agents = self._last_valid_agents
+
+        try:
+            self._update_agents_hint()
+        except Exception:
+            pass
+
+        async def log_cb(msg):
+            self.after(0, lambda: self.exec_logs.insert('end', msg + '\n'))
+            self.after(0, lambda: self.exec_logs.see('end'))
+
+        async def progress_cb(pct):
+            self.after(0, lambda: setattr(self.exec_progress, 'value', pct))
+            self.after(0, lambda: self.exec_status_label.config(text=f"Progress: {pct:.1f}%"))
+
+        async def execute():
+            # 🆕 Pass execution_mode to the orchestrator
+            result = await self.orchestrator.execute_prd_loop(
+                prd=prd_to_run,
+                num_agents=num_agents,
+                execution_mode=mode,  # NOW GUARANTEED TO MATCH UI
+                log_callback=log_cb,
+                progress_callback=progress_cb
+            )
+            self.after(0, lambda: self.exec_btn.config(state='normal'))
+            self.execution_running = False
+
+            if result.get('status') == 'success':
+                self.after(0, lambda: messagebox.showinfo("Success", "Execution completed! Check Validation tab."))
+            else:
+                self.after(0, lambda: messagebox.showerror("Error", result.get('error', 'Execution failed')))
+
+        self.async_thread.submit(execute())
+
+    def _stop_execution(self):
+        messagebox.showinfo("Stop", "Execution stop not implemented yet")
+
+    def _create_validation_tab(self):
+        validation = ttk.Frame(self.notebook)
+        self.notebook.add(validation, text="✅ Validation")
+        container = ttk.Frame(validation)
+        container.pack(fill='both', expand=True, padx=20, pady=20)
+        ttk.Label(container, text="Code Validation", font=('Arial', 18, 'bold')).pack(pady=10)
+        ttk.Label(container, text="Run black, mypy, pytest, pylint on generated code", font=('Arial', 11)).pack(pady=5)
+        controls = ttk.Frame(container)
+        controls.pack(fill='x', pady=20)
+        ttk.Button(controls, text="🔍 Run Validation", command=self._run_validation).pack(side='left', padx=5)
+        ttk.Button(controls, text="📊 View Report", command=self._view_validation_report).pack(side='left', padx=5)
+        ttk.Label(container, text="Validation Results:", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(20, 5))
+        self.validation_text = scrolledtext.ScrolledText(container, height=25, width=100, font=('Consolas', 9))
+        self.validation_text.pack(fill='both', expand=True, pady=5)
+
+    def _run_validation(self):
+        messagebox.showinfo("Validation",
+                            "Validation not fully implemented yet. Check execution logs for code quality.")
+
+    def _view_validation_report(self):
+        messagebox.showinfo("Report", "No validation report available yet.")
+
+    def _create_logs_tab(self):
+        logs = ttk.Frame(self.notebook)
+        self.notebook.add(logs, text="📋 Logs")
+        container = ttk.Frame(logs)
+        container.pack(fill='both', expand=True, padx=20, pady=20)
+        ttk.Label(container, text="Orchestrator Logs", font=('Arial', 18, 'bold')).pack(pady=10)
+        controls = ttk.Frame(container)
+        controls.pack(fill='x', pady=10)
+        ttk.Button(controls, text="🔄 Refresh", command=self._refresh_logs).pack(side='left', padx=5)
+        ttk.Button(controls, text="🗑️ Clear", command=self._clear_logs).pack(side='left', padx=5)
+        ttk.Button(controls, text="💾 Save to File", command=self._save_logs).pack(side='left', padx=5)
+        self.logs_text = scrolledtext.ScrolledText(container, height=30, width=120, font=('Consolas', 9))
+        self.logs_text.pack(fill='both', expand=True, pady=10)
+        self._refresh_logs()
+
+    def _refresh_logs(self):
+        self.logs_text.delete('1.0', 'end')
+        for log in self.orchestrator.get_execution_log():
+            self.logs_text.insert('end', log + '\n')
+        self.logs_text.see('end')
+
+    def _clear_logs(self):
+        self.orchestrator.clear_execution_log()
+        self._refresh_logs()
+
+    def _save_logs(self):
+        filename = filedialog.asksaveasfilename(defaultextension=".txt",
+                                                filetypes=[("Text files", "*.txt"), ("All files", "*.*")])
+        if filename:
+            with open(filename, 'w') as f:
+                f.write('\n'.join(self.orchestrator.get_execution_log()))
+            messagebox.showinfo("Success", f"Logs saved to {filename}")
+
+    def _on_close(self):
+        try:
+            if hasattr(self, "async_thread") and self.async_thread is not None:
+                try:
+                    self.async_thread.stop()
+                except Exception as e:
+                    logger.warning("Failed to stop async event loop thread: %s", e)
+        finally:
+            try:
+                self.destroy()
+            except Exception:
+                pass
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    app = RalphUI()
+    app.mainloop()
