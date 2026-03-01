@@ -1060,6 +1060,9 @@ class RalphUI(tk.Tk):
         self.execution_running = False
         self.validation_result = None
 
+        # Stage 4 (DR4-01a): basic crash tracking for DARIZ
+        self.last_crash_snapshot: Optional[Dict[str, Any]] = None
+
         self._setup_styles()
         self._create_layout()
         self._refresh_projects()
@@ -1476,6 +1479,16 @@ class RalphUI(tk.Tk):
                     msg = f"\n[SYSTEM] Process crashed with exit code {exit_code}. Possible OOM (Killed: 9).\n"
                     self.after(0, lambda: self.live_terminal.insert('end', msg, 'error'))
                     self.after(0, lambda: self.live_terminal.see('end'))
+
+                    # DR4-01a: capture crash snapshot and offer DARIZ
+                    def _handle_crash():
+                        try:
+                            output_tail = self.live_terminal.get("1.0", "end")[-2000:]
+                        except Exception:
+                            output_tail = ""
+                        self._on_process_crash(exit_code, output_tail)
+
+                    self.after(0, _handle_crash)
                 else:
                     self.after(0,
                                lambda: self.live_terminal.insert('end', "\n[SYSTEM] Process completed successfully.\n"))
@@ -1485,6 +1498,30 @@ class RalphUI(tk.Tk):
                 self.after(0, lambda: self.live_terminal.see('end'))
 
         threading.Thread(target=run_and_stream, daemon=True).start()
+
+    def _on_process_crash(self, exit_code: int, output_tail: str) -> None:
+        """Store crash snapshot and optionally trigger DARIZ fix (Stage 4 DR4-01a)."""
+        try:
+            self.last_crash_snapshot = {
+                "exit_code": exit_code,
+                "output_tail": output_tail,
+                "timestamp": datetime.now().isoformat(),
+            }
+        except Exception:
+            self.last_crash_snapshot = None
+
+        answer = messagebox.askyesno(
+            "Process crashed",
+            "Обнаружен сбой целевого скрипта.\n\n"
+            "Снимок лога сохранён для DARIZ-анализа.\n\n"
+            "Запустить сейчас DARIZ Auto-Fix (без автозапуска агентов)?",
+        )
+        if answer:
+            try:
+                self._trigger_dariz_fix(auto_execute=False)
+            except Exception as e:
+                logger.error("Failed to trigger DARIZ after crash: %s", e, exc_info=True)
+                messagebox.showerror("DARIZ Error", f"Не удалось запустить DARIZ Auto-Fix:\n{e}")
 
     def _kill_process(self):
         if hasattr(self, 'process') and self.process:
@@ -1704,15 +1741,16 @@ class RalphUI(tk.Tk):
         if not hasattr(self, "agents_hint_label"): return
         backlog_size = self._get_backlog_size()
 
-        # 🆕 Get current execution mode
-        mode = "council"  # 🚀 Bypassing Tkinter combobox cache
+        try:
+            mode = self.mode_cb.get().strip().lower()
+        except Exception:
+            mode = "parallel"
 
         try:
             requested = int(self.agents_var.get())
-        except:
+        except Exception:
             requested = getattr(self, "_last_valid_agents", 1)
 
-        # 🆕 Dynamic hint based on Architecture Mode
         if mode == 'parallel':
             if backlog_size > 0:
                 effective = min(requested, backlog_size)
@@ -1721,10 +1759,10 @@ class RalphUI(tk.Tk):
                 effective = requested
                 hint_text = f"[Parallel Swarm] max_agents = min(#stories=0, val={requested})"
         else:
-            # In Council Mode, agents stack on ONE story. Effective agents = Requested agents.
             effective = requested
             hint_text = f"[Model Council] {effective} agents will collaborate sequentially per story."
 
+        self._last_valid_agents = effective
         self.agents_hint_label.config(text=hint_text)
 
         if hasattr(self, "agents_status_label"):
@@ -1751,14 +1789,10 @@ class RalphUI(tk.Tk):
         self.exec_logs.delete('1.0', 'end')
         self.exec_progress['value'] = 0
 
-        # ==========================================
-        # 🚀 TRIZ FIX: EXPLICIT UI STATE EXTRACTION
-        # ==========================================
         try:
-            # Force read the actual text in the combobox widget, bypassing StringVar sync issues
             mode = self.mode_cb.get().strip().lower()
             if mode not in ['parallel', 'council']:
-                mode = 'parallel'  # Fallback
+                mode = 'parallel'
         except Exception as e:
             logger.warning(f"Failed to read mode combobox, defaulting to parallel: {e}")
             mode = 'parallel'
@@ -1774,7 +1808,6 @@ class RalphUI(tk.Tk):
         if mode == 'parallel':
             num_agents = min(self._last_valid_agents, backlog_size) if backlog_size > 0 else self._last_valid_agents
         else:
-            # Council mode ignores the story clamping
             num_agents = self._last_valid_agents
 
         try:
@@ -1791,11 +1824,10 @@ class RalphUI(tk.Tk):
             self.after(0, lambda: self.exec_status_label.config(text=f"Progress: {pct:.1f}%"))
 
         async def execute():
-            # 🆕 Pass execution_mode to the orchestrator
             result = await self.orchestrator.execute_prd_loop(
                 prd=prd_to_run,
                 num_agents=num_agents,
-                execution_mode=mode,  # NOW GUARANTEED TO MATCH UI
+                execution_mode=mode,
                 log_callback=log_cb,
                 progress_callback=progress_cb
             )
