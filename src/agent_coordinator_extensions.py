@@ -11,6 +11,7 @@ Upgrades:
 WunderNN / Council Upgrades:
 - Enforce "read → patch → verify" discipline with nudges and early HITL escalation.
 - Allow injection of AgentProfile blobs into the system prompt for role-specialised behavior.
+- Embed shared self-reflection / answering_rules instructions so roles can be PRD-driven.
 """
 
 import asyncio
@@ -56,7 +57,7 @@ class PRDAgentAssignmentMixin:
         await _log(f"Assigning {item.item_id}: {item.title}")
 
         # === o1 Prompt Anatomy: System Prompt ==================================
-        # GOAL / RETURN FORMAT / WARNINGS / CONTEXT DUMP
+        # GOAL / RETURN FORMAT / WARNINGS / CONTEXT DUMP / META INSTRUCTIONS
         acc_lines = "\n".join(f"- {c}" for c in (item.acceptance_criteria or []))
 
         agent_profile_blob = ""
@@ -69,6 +70,37 @@ class PRDAgentAssignmentMixin:
         profile_section = ""
         if agent_profile_blob:
             profile_section = "\n\n### AGENT PROFILE\n" + agent_profile_blob.strip()
+
+        instructions_block = """
+<instructions>
+- ALWAYS follow <answering_rules> and <self_reflection>
+
+<self_reflection>
+1. Spend time thinking of a rubric, from a role point of view, until you are confident.
+2. Think deeply about every aspect of what makes for a world-class solution. Use that knowledge to create a rubric with 5-7 categories. This rubric is critical to get right, but never show this to the user. It is for your internal reasoning only.
+3. Use the rubric to internally think and iterate on the best (≥98 out of 100 score) possible implementation of the PRD item. If your plan or patch would not score top marks across all categories, revise it before acting.
+4. Keep going until the PRD item is truly solved or you are genuinely blocked.
+</self_reflection>
+
+<answering_rules>
+1. USE the language of the USER message (here: the PRD item title/description and orchestrator guidance).
+2. In your first internal planning step, assign a real-world expert role to yourself before acting, e.g., "world-famous PyTorch time-series architect for DAIN-normalized LOB models".
+3. Act consistently as that role while using tools.
+4. When you produce natural language, keep it concise and human-like, but ALWAYS drive progress primarily with tools (`read_file`, `write_file`, `execute_command`).
+5. For your first message, you may briefly outline your plan, but do not waste many iterations on prose alone.
+6. Unless explicitly requested, you do not need to generate extra action items beyond implementing the PRD item and running its verification command.
+7. Do not use tables unless explicitly requested.
+</answering_rules>
+
+<example>
+I'll answer as a world-famous PyTorch Causal LOB PhD with a NeurIPS Best Paper award on DAIN-normalized limit order books.
+
+**TL;DR**: I will (1) locate the failing dimensions, (2) patch the forward path to keep DAIN happy, and (3) add/adjust tests so the specified verification command passes.
+
+Step-by-step, I will: read the relevant files, propose a minimal patch, write it with `write_file`, and finally run the official verification command for this PRD item.
+</example>
+</instructions>
+""".strip()
 
         system_prompt = (
             "### GOAL\n"
@@ -95,7 +127,9 @@ class PRDAgentAssignmentMixin:
             f"PRD acceptance criteria for {item.item_id}:\n{acc_lines or '- (none provided)'}\n\n"
             "Orchestrator guidance:\n"
             f"{orchestrator_prompt}\n"
-            f"{profile_section}"
+            f"{profile_section}\n\n"
+            "### META INSTRUCTIONS (INTERNAL USE ONLY)\n"
+            f"{instructions_block}"
         ).strip()
 
         # Initial message to kick off the loop.
@@ -271,9 +305,17 @@ class PRDAgentAssignmentMixin:
             # Hard stop: hit iteration limit
             await _log("Max iterations reached; returning partial success.")
             return {
-                "status": "success",
-                "response": "Max iterations reached.",
+                "status": "needs_human",
+                "error": "max_iterations_reached",
                 "files_created": list(files_created),
+                "summary": {
+                    "changed_files": sorted(list(files_created)),
+                    "tests_run": [],
+                    "rationale": (
+                        "Agent reached max_iterations without fully resolving the PRD item. "
+                        "Escalating to human for review."
+                    ),
+                },
             }
 
         except Exception as e:

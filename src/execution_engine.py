@@ -10,6 +10,7 @@ Guru-Level Refactor:
 
 WunderNN / Council Upgrades:
 - Role-specialised AgentProfiles with self-reflection rubrics for Architect/Reviewer/Refiner/Verifier.
+- Dynamic role_mode support (static vs PRD-driven) with HITL-aware escalation.
 """
 
 import asyncio
@@ -44,6 +45,7 @@ class ExecutionEngine:
         self.progress_file = self.project_dir / "progress.txt"
         self.metrics_history_file = self.project_dir / "metrics_history.json"
         self.metrics_config_file = self.project_dir / "metrics_config.json"
+        self.config_file = self.project_dir / "config.json"
 
         self.deepseek = deepseek_client
         self.coordinator = agent_coordinator
@@ -51,7 +53,12 @@ class ExecutionEngine:
         self.agent_profile_store = AgentProfileStore.load_for_project(self.project_dir)
 
         self.metric_config = self._load_metrics_config()
-        logger.info(f"🚀 Execution Engine Online: {self.project_dir.name}")
+        self.project_config = self._load_project_config()
+        meta = (self.project_config.get("metadata") if isinstance(self.project_config, dict) else {}) or {}
+        # role_mode: "static" (default) uses seeded AgentProfiles; "dynamic" lets agents derive roles per PRD item
+        self.role_mode = meta.get("role_mode", "static")
+
+        logger.info(f"🚀 Execution Engine Online: {self.project_dir.name} (role_mode={self.role_mode})")
 
     async def execute(
         self,
@@ -91,7 +98,7 @@ class ExecutionEngine:
     # ------------------------------------------------------------------
 
     async def _run_council(self, stories, profiles, orchestrator_prompt, exec_id) -> Dict[str, Any]:
-        """Sequential escalation through expert roles."""
+        """Sequential escalation through expert roles, with HITL-aware early stop."""
         completed, failed = [], []
         total = len(stories)
 
@@ -112,9 +119,17 @@ class ExecutionEngine:
                 result = await self._execute_story(story, council_prompt, aid, profile)
                 duration = (datetime.now() - start_time).total_seconds()
 
-                if result["status"] == "success":
+                status = result.get("status")
+                if status == "success":
                     completed.append({"id": story_id, "agent": aid})
                     await self._log(f"   ✅ [Council] Success under {aid}. Handoff complete.")
+                    resolved = True
+                    break
+                elif status == "needs_human":
+                    err = result.get("error", "Agent requested human intervention / analysis-only budget exhausted")
+                    await self._log(f"   🧍 [{aid}] Requested human help: {err}")
+                    failed.append({"id": story_id, "error": err})
+                    # Do NOT escalate to further experts; surface to operator instead
                     resolved = True
                     break
                 else:
@@ -147,6 +162,9 @@ class ExecutionEngine:
         )
 
         # The Missing Wire: Passing the dynamic prompt + profile to the Coordinator
+        # In dynamic role_mode, we intentionally DO NOT inject AgentProfile text, letting
+        # the shared instructions block derive per-PRD roles and rubric.
+        use_profile = self.role_mode != "dynamic"
         res = await self.coordinator.assign_prd_item(
             item=item,
             agent_id=agent_id,
@@ -154,23 +172,29 @@ class ExecutionEngine:
             deepseek_client=self.deepseek,
             log_callback=self._log,
             orchestrator_prompt=prompt,
-            agent_profile=profile,
+            agent_profile=profile if use_profile else None,
         )
 
-        if res.get("status") != "success":
-            return self._handle_story_failure(story, agent_id, res.get("error"))
+        status = res.get("status")
+        if status == "success":
+            # Official Independent Verification
+            verify_cmd = story.get("verification")
+            if verify_cmd:
+                await self._log(f"   🧪 [{agent_id}] Running deterministic verification...")
+                v_res = await self._run_async_subprocess(verify_cmd)
 
-        # Official Independent Verification
-        verify_cmd = story.get("verification")
-        if verify_cmd:
-            await self._log(f"   🧪 [{agent_id}] Running deterministic verification...")
-            v_res = await self._run_async_subprocess(verify_cmd)
+                if not v_res["success"]:
+                    return self._handle_story_failure(story, agent_id, v_res.get("error"))
 
-            if not v_res["success"]:
-                return self._handle_story_failure(story, agent_id, v_res.get("error"))
+            self._update_prd_story(story_id, "done", True)
+            return {"status": "success", "files": res.get("files_created", [])}
 
-        self._update_prd_story(story_id, "done", True)
-        return {"status": "success", "files": res.get("files_created", [])}
+        if status == "needs_human":
+            # Do not mark as hard failure; let council / caller surface HITL reason.
+            return {"status": "needs_human", "error": res.get("error", "needs_human")}
+
+        # True failure (tests or commands failed after code changes)
+        return self._handle_story_failure(story, agent_id, res.get("error"))
 
     async def _run_async_subprocess(self, command: str) -> Dict[str, Any]:
         """Signal-safe process execution using asyncio.create_subprocess_shell."""
@@ -197,7 +221,12 @@ class ExecutionEngine:
     # ------------------------------------------------------------------
 
     def _prepare_agent_profiles(self, agent_ids) -> Dict[str, AgentProfile]:
-        """Ensure all agents have valid grounding profiles with rubrics."""
+        """Ensure all agents have valid grounding profiles with rubrics.
+
+        In "static" role_mode, we seed Architect/Reviewer/Refiner/Verifier defaults.
+        In "dynamic" role_mode, profiles remain minimal; PRD-level instructions
+        drive role/rubric instead of hard-coded self_reflection.
+        """
         profiles: Dict[str, AgentProfile] = {}
 
         # Default, role-specialised profiles for a 4-agent council.
@@ -268,12 +297,14 @@ class ExecutionEngine:
             },
         }
 
+        static_mode = self.role_mode == "static"
+
         for aid in agent_ids:
             profile = self.agent_profile_store.get(aid)
             defaults = default_profiles.get(aid)
 
             if not profile:
-                if defaults:
+                if static_mode and defaults:
                     profile = AgentProfile(
                         id=aid,
                         name=defaults["name"],
@@ -283,6 +314,7 @@ class ExecutionEngine:
                         self_reflection=defaults["self_reflection"],
                     )
                 else:
+                    # Minimal, dynamic profile – details come from PRD-level instructions.
                     profile = AgentProfile(
                         id=aid,
                         name=f"Expert {aid[-1]}",
@@ -291,8 +323,8 @@ class ExecutionEngine:
 
                 self.agent_profile_store.upsert_agent(profile)
             else:
-                # Backfill self_reflection for existing profiles if missing
-                if not getattr(profile, "self_reflection", None) and defaults:
+                # In static mode, backfill self_reflection for existing profiles if missing
+                if static_mode and not getattr(profile, "self_reflection", None) and defaults:
                     profile.self_reflection = defaults["self_reflection"]
                     self.agent_profile_store.upsert_agent(profile)
 
@@ -339,6 +371,13 @@ class ExecutionEngine:
             return json.loads(self.metrics_config_file.read_text())
         except Exception:
             return None
+
+    def _load_project_config(self):
+        """Best-effort load of project config.json so we can read metadata (e.g. role_mode)."""
+        try:
+            return json.loads(self.config_file.read_text())
+        except Exception:
+            return {}
 
     async def _log(self, msg):
         if self.log_callback:
