@@ -580,6 +580,33 @@
             "metric_value": null,
             "reward": 1.0
           }
+        },
+        {
+          "summary": "Story ML-004 failed by agent_1 in Council.",
+          "metrics": {
+            "story_id": "ML-004",
+            "status": "failed",
+            "metric_value": null,
+            "reward": -1.0
+          }
+        },
+        {
+          "summary": "Story ML-005 failed by agent_1 in Council.",
+          "metrics": {
+            "story_id": "ML-005",
+            "status": "failed",
+            "metric_value": null,
+            "reward": -1.0
+          }
+        },
+        {
+          "summary": "Story ML-007 succeeded by agent_1 in Council.",
+          "metrics": {
+            "story_id": "ML-007",
+            "status": "success",
+            "metric_value": null,
+            "reward": 1.0
+          }
         }
       ],
       "notes": [
@@ -645,7 +672,10 @@
         "Story ML-001 succeeded by agent_1 in Council.",
         "Story ML-002 succeeded by agent_1 in Council.",
         "Story ML-001 succeeded by agent_1 in Council.",
-        "Story ML-002 succeeded by agent_1 in Council."
+        "Story ML-002 succeeded by agent_1 in Council.",
+        "Story ML-004 failed by agent_1 in Council.",
+        "Story ML-005 failed by agent_1 in Council.",
+        "Story ML-007 succeeded by agent_1 in Council."
       ]
     },
     "agent_2": {
@@ -715,6 +745,24 @@
             "metric_value": null,
             "reward": -1.0
           }
+        },
+        {
+          "summary": "Story ML-004 failed by agent_2 in Council.",
+          "metrics": {
+            "story_id": "ML-004",
+            "status": "failed",
+            "metric_value": null,
+            "reward": -1.0
+          }
+        },
+        {
+          "summary": "Story ML-005 failed by agent_2 in Council.",
+          "metrics": {
+            "story_id": "ML-005",
+            "status": "failed",
+            "metric_value": null,
+            "reward": -1.0
+          }
         }
       ],
       "notes": [
@@ -723,7 +771,9 @@
         "Story ML-002 succeeded by agent_2, reward=1.0000, metric=None",
         "Story ML-002 succeeded by agent_2, reward=1.0000, metric=None",
         "Story ML-002 failed by agent_2, reward=-1.0000, error=Verification timed out (600s)",
-        "Story ML-001 failed by agent_2 in Council."
+        "Story ML-001 failed by agent_2 in Council.",
+        "Story ML-004 failed by agent_2 in Council.",
+        "Story ML-005 failed by agent_2 in Council."
       ]
     },
     "agent_3": {
@@ -775,13 +825,33 @@
             "metric_value": null,
             "reward": -1.0
           }
+        },
+        {
+          "summary": "Story ML-004 failed by agent_3 in Council.",
+          "metrics": {
+            "story_id": "ML-004",
+            "status": "failed",
+            "metric_value": null,
+            "reward": -1.0
+          }
+        },
+        {
+          "summary": "Story ML-005 failed by agent_3 in Council.",
+          "metrics": {
+            "story_id": "ML-005",
+            "status": "failed",
+            "metric_value": null,
+            "reward": -1.0
+          }
         }
       ],
       "notes": [
         "Story ML-003 succeeded by agent_3, reward=1.0000, metric=None",
         "Story ML-003 failed by agent_3, reward=-1.0000, error=Command failed with code 1:\n",
         "Story ML-003 failed by agent_3, reward=-1.0000, error=Command failed with code 1:\n============================= test session starts ==============================\nplatform da",
-        "Story ML-001 failed by agent_3 in Council."
+        "Story ML-001 failed by agent_3 in Council.",
+        "Story ML-004 failed by agent_3 in Council.",
+        "Story ML-005 failed by agent_3 in Council."
       ]
     },
     "agent_4": {
@@ -824,12 +894,32 @@
             "metric_value": null,
             "reward": -1.0
           }
+        },
+        {
+          "summary": "Story ML-004 failed by agent_4 in Council.",
+          "metrics": {
+            "story_id": "ML-004",
+            "status": "failed",
+            "metric_value": null,
+            "reward": -1.0
+          }
+        },
+        {
+          "summary": "Story ML-005 failed by agent_4 in Council.",
+          "metrics": {
+            "story_id": "ML-005",
+            "status": "failed",
+            "metric_value": null,
+            "reward": -1.0
+          }
         }
       ],
       "notes": [
         "Story ML-004 succeeded by agent_4, reward=1.0000, metric=None",
         "Story ML-004 failed by agent_4, reward=-1.0000, error=Verification timed out (600s)",
-        "Story ML-001 failed by agent_4 in Council."
+        "Story ML-001 failed by agent_4 in Council.",
+        "Story ML-004 failed by agent_4 in Council.",
+        "Story ML-005 failed by agent_4 in Council."
       ]
     },
     "agent_5": {
@@ -845,8 +935,30 @@
         "src/"
       ],
       "metric_focus": "weighted_pearson",
-      "kpi_history": [],
-      "notes": []
+      "kpi_history": [
+        {
+          "summary": "Story ML-004 failed by agent_5 in Council.",
+          "metrics": {
+            "story_id": "ML-004",
+            "status": "failed",
+            "metric_value": null,
+            "reward": -1.0
+          }
+        },
+        {
+          "summary": "Story ML-005 failed by agent_5 in Council.",
+          "metrics": {
+            "story_id": "ML-005",
+            "status": "failed",
+            "metric_value": null,
+            "reward": -1.0
+          }
+        }
+      ],
+      "notes": [
+        "Story ML-004 failed by agent_5 in Council.",
+        "Story ML-005 failed by agent_5 in Council."
+      ]
     },
     "agent_6": {
       "id": "agent_6",
@@ -861,8 +973,30 @@
         "src/"
       ],
       "metric_focus": "weighted_pearson",
-      "kpi_history": [],
-      "notes": []
+      "kpi_history": [
+        {
+          "summary": "Story ML-004 failed by agent_6 in Council.",
+          "metrics": {
+            "story_id": "ML-004",
+            "status": "failed",
+            "metric_value": null,
+            "reward": -1.0
+          }
+        },
+        {
+          "summary": "Story ML-005 failed by agent_6 in Council.",
+          "metrics": {
+            "story_id": "ML-005",
+            "status": "failed",
+            "metric_value": null,
+            "reward": -1.0
+          }
+        }
+      ],
+      "notes": [
+        "Story ML-004 failed by agent_6 in Council.",
+        "Story ML-005 failed by agent_6 in Council."
+      ]
     },
     "agent_7": {
       "id": "agent_7",
@@ -877,8 +1011,30 @@
         "src/"
       ],
       "metric_focus": "weighted_pearson",
-      "kpi_history": [],
-      "notes": []
+      "kpi_history": [
+        {
+          "summary": "Story ML-004 failed by agent_7 in Council.",
+          "metrics": {
+            "story_id": "ML-004",
+            "status": "failed",
+            "metric_value": null,
+            "reward": -1.0
+          }
+        },
+        {
+          "summary": "Story ML-005 failed by agent_7 in Council.",
+          "metrics": {
+            "story_id": "ML-005",
+            "status": "failed",
+            "metric_value": null,
+            "reward": -1.0
+          }
+        }
+      ],
+      "notes": [
+        "Story ML-004 failed by agent_7 in Council.",
+        "Story ML-005 failed by agent_7 in Council."
+      ]
     }
   }
 }

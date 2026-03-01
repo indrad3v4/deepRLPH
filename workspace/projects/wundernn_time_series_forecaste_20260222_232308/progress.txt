@@ -292,3 +292,132 @@ AssertionError: CAUSALITY LEAK: Future data changed past predictions! Max diff: 
 
 [2026-02-28 20:03:38] ML-002 - SUCCESS
 [agent=agent_1] Verification passed. Metric: N/A
+
+[2026-02-28 22:56:18] ML-002 - FAILED
+[agent=agent_2] Command failed with code 1:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+NameError: name 'sys' is not defined
+
+
+[2026-02-28 22:57:55] ML-006 - FAILED
+[agent=agent_6] Command failed with code 1:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+NameError: name 'sys' is not defined
+
+
+[2026-02-28 22:58:04] ML-001 - FAILED
+[agent=agent_1] Command failed with code 1:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+NameError: name 'sys' is not defined
+
+
+[2026-02-28 22:58:21] ML-003 - FAILED
+[agent=agent_3] Command failed with code 1:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+NameError: name 'sys' is not defined
+
+
+[2026-02-28 23:04:59] ML-004 - FAILED
+[agent=agent_1] Command failed with code 1:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+NameError: name 'sys' is not defined
+
+
+[2026-02-28 23:13:11] ML-004 - FAILED
+[agent=agent_2] Command failed with code 1:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+NameError: name 'sys' is not defined
+
+
+[2026-02-28 23:22:15] ML-004 - FAILED
+[agent=agent_3] Command failed with code 1:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+NameError: name 'sys' is not defined
+
+
+[2026-02-28 23:25:09] ML-004 - FAILED
+[agent=agent_4] Command failed with code 1:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+NameError: name 'sys' is not defined
+
+
+[2026-02-28 23:27:44] ML-004 - FAILED
+[agent=agent_5] Command failed with code 1:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+NameError: name 'sys' is not defined
+
+
+[2026-02-28 23:33:59] ML-004 - FAILED
+[agent=agent_6] Command failed with code 1:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+NameError: name 'sys' is not defined
+
+
+[2026-02-28 23:41:08] ML-004 - FAILED
+[agent=agent_7] Command failed with code 1:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+NameError: name 'sys' is not defined
+
+
+[2026-02-28 23:46:34] ML-005 - FAILED
+[agent=agent_1] Command failed with code 1:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+NameError: name 'sys' is not defined
+
+
+[2026-02-28 23:56:36] ML-005 - FAILED
+[agent=agent_2] Command failed with code 1:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+NameError: name 'sys' is not defined
+
+
+[2026-03-01 00:02:10] ML-005 - FAILED
+[agent=agent_3] Command failed with code 1:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+NameError: name 'sys' is not defined
+
+
+[2026-03-01 00:12:03] ML-005 - FAILED
+[agent=agent_4] Command failed with code 1:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+NameError: name 'sys' is not defined
+
+
+[2026-03-01 00:17:56] ML-005 - FAILED
+[agent=agent_5] Command failed with code 1:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+NameError: name 'sys' is not defined
+
+
+[2026-03-01 00:27:26] ML-005 - FAILED
+[agent=agent_6] Command failed with code 1:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+NameError: name 'sys' is not defined
+
+
+[2026-03-01 00:34:09] ML-005 - FAILED
+[agent=agent_7] Command failed with code 1:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+NameError: name 'sys' is not defined
+
+
+[2026-03-01 00:39:04] ML-007 - SUCCESS
+[agent=agent_1] Verification passed. Metric: N/A

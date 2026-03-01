@@ -14,15 +14,19 @@ class TemporalFusionDeepLOB(nn.Module):
     ANTI-OVERFITTING EDITION:
     Combats the 1.0000 -> 0.0270 Leaderboard drop by severely penalizing
     memorization pathways using heavy Dropout layers.
+    
+    UPDATED FOR HYDRA:
+    - Uses 40 input channels as per PRD requirements
+    - Maintains strict causal slicing
     """
 
-    def __init__(self, input_dim=32, hidden_dim=64, num_lstm_layers=2):
+    def __init__(self, input_dim=40, hidden_dim=64, num_lstm_layers=2):
         super(TemporalFusionDeepLOB, self).__init__()
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.num_lstm_layers = num_lstm_layers
 
-        # 1. Cross-Sectional Feature Mixer (1x1 Conv)
+        # 1. Cross-Sectional Feature Mixer (1x1 Conv) - UPDATED: 40 input channels
         self.feature_mixer = nn.Sequential(
             nn.Conv1d(in_channels=input_dim, out_channels=64, kernel_size=1),
             nn.GroupNorm(8, 64),
@@ -85,7 +89,7 @@ class TemporalFusionDeepLOB(nn.Module):
         Args:
             x (torch.Tensor): Input tensor of shape (batch_size, sequence_length, input_dim)
                 - sequence_length: Must be >= 1000 for proper slicing
-                - input_dim: Default is 32 features
+                - input_dim: Must be 40 features (as per PRD)
 
         Returns:
             torch.Tensor: Output tensor of shape (batch_size, sequence_length - 99, 2)
@@ -129,7 +133,7 @@ class TemporalFusionDeepLOB(nn.Module):
 
 def create_model():
     """Factory function to create a TemporalFusionDeepLOB model instance."""
-    return TemporalFusionDeepLOB(input_dim=32, hidden_dim=64, num_lstm_layers=2)
+    return TemporalFusionDeepLOB(input_dim=40, hidden_dim=64, num_lstm_layers=2)
 
 
 if __name__ == "__main__":
@@ -140,7 +144,7 @@ if __name__ == "__main__":
     model.eval()  # Force eval mode to trigger normalization behavior
 
     batch_size = 1  # Simulating the exact environment of prerun.py
-    dummy_input = torch.randn(batch_size, 1000, 32)
+    dummy_input = torch.randn(batch_size, 1000, 40)
 
     with torch.inference_mode():
         output = model(dummy_input)
@@ -151,3 +155,4 @@ if __name__ == "__main__":
     print(f"✅ Output shape: {output.shape}")
 
     assert output.shape == (batch_size, 901, 2), f"Dimension mismatch: {output.shape}"
+    print(f"✅ Verification passed: Output shape is {output.shape}")

@@ -16,25 +16,29 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 import warnings
 import argparse
+import json
 
 warnings.filterwarnings('ignore')
 
-from src.models.deep_lob import create_model
+from src.models.registry import get_model
 from src.data.loader import OFIDataLoader
 from src.losses.weighted_pearson import WeightedPearsonCorrelationLoss
 
 
 class TrainingPipeline:
-    def __init__(self, model, train_loader, val_loader, device='cpu', lr=3e-4, patience=5, max_epochs=20):
+    def __init__(self, model, train_loader, val_loader, device='cpu', lr=3e-4, patience=5, max_epochs=20, 
+                 target_pearson=0.35):
         self.model = model.to(device)
         self.train_loader = train_loader
         self.val_loader = val_loader
         self.device = device
         self.max_epochs = max_epochs
         self.patience = patience
+        self.target_pearson = target_pearson
         self.best_val_pearson = -float('inf')
         self.no_improvement_count = 0
 
+        # Use weighted_pearson loss with target metric 0.35
         self.pearson_criterion = WeightedPearsonCorrelationLoss(reduction='mean')
         self.optimizer = optim.AdamW(self.model.parameters(), lr=lr, weight_decay=0.1)
         self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=max_epochs)
@@ -54,7 +58,12 @@ class TrainingPipeline:
 
             p_loss = self.pearson_criterion(preds, targets)
             mse_loss = F.mse_loss(preds, targets)
-            hybrid_loss = 0.5 * p_loss + 0.5 * mse_loss
+            
+            # Weighted loss with emphasis on pearson correlation
+            # Using target_pearson to guide the weighting
+            pearson_weight = 0.7  # Higher weight for pearson to reach target
+            mse_weight = 0.3
+            hybrid_loss = pearson_weight * p_loss + mse_weight * mse_loss
 
             hybrid_loss.backward()
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), 5.0)
@@ -82,9 +91,14 @@ class TrainingPipeline:
 
                 p_loss = self.pearson_criterion(p, t)
                 mse_loss = F.mse_loss(p, t)
+                
+                # Same weighting as in training
+                pearson_weight = 0.7
+                mse_weight = 0.3
+                hybrid_loss = pearson_weight * p_loss + mse_weight * mse_loss
 
                 total_p_loss += p_loss.item()
-                total_hybrid_loss += (0.5 * p_loss + 0.5 * mse_loss).item()
+                total_hybrid_loss += hybrid_loss.item()
 
         batches = len(self.val_loader)
         avg_hybrid = total_hybrid_loss / batches
@@ -92,7 +106,9 @@ class TrainingPipeline:
         return avg_hybrid, avg_pearson
 
     def run(self):
-        print(f"🚀 Starting Training Pipeline | Params: {sum(p.numel() for p in self.model.parameters()):,}")
+        print(f"🚀 Starting Training Pipeline | Target Pearson: {self.target_pearson}")
+        print(f"📊 Model Parameters: {sum(p.numel() for p in self.model.parameters()):,}")
+        
         for epoch in range(1, self.max_epochs + 1):
             train_hybrid, train_pearson = self.train_epoch()
             val_hybrid, val_pearson = self.validate()
@@ -100,7 +116,16 @@ class TrainingPipeline:
             self.scheduler.step()
 
             print(
-                f"Epoch {epoch}/{self.max_epochs} | Train Loss: {train_hybrid:.4f} | Train Pearson: {train_pearson:.4f} | Val Loss: {val_hybrid:.4f} | Val Pearson: {val_pearson:.4f} | LR: {lr:.6f}")
+                f"Epoch {epoch}/{self.max_epochs} | "
+                f"Train Loss: {train_hybrid:.4f} | Train Pearson: {train_pearson:.4f} | "
+                f"Val Loss: {val_hybrid:.4f} | Val Pearson: {val_pearson:.4f} | "
+                f"LR: {lr:.6f}")
+
+            # Check if we reached target pearson
+            if val_pearson >= self.target_pearson:
+                print(f"🎯 TARGET ACHIEVED! Pearson {val_pearson:.4f} >= {self.target_pearson}")
+                torch.save(self.model.state_dict(), "best_model.pt")
+                break
 
             if val_pearson > self.best_val_pearson:
                 self.best_val_pearson = val_pearson
@@ -123,10 +148,15 @@ class TrainingPipeline:
         if os.path.exists("best_model.pt"):
             self.model.load_state_dict(torch.load("best_model.pt", map_location=self.device))
             self.model.eval()
-            print("✅ Loaded peak alpha weights.")
+            print("✅ Loaded best weights.")
 
             print("⚡ Generating TorchScript JIT graph...")
-            dummy = torch.randn(1, 1000, 32, device=self.device)
+            # Use appropriate dummy input based on model
+            if hasattr(self.model, 'input_dim'):
+                input_dim = self.model.input_dim
+            else:
+                input_dim = 32  # default
+            dummy = torch.randn(1, 1000, input_dim, device=self.device)
             with torch.no_grad():
                 traced = torch.jit.trace(self.model, dummy)
                 torch.jit.save(traced, "model_jit.pt")
@@ -157,22 +187,71 @@ def create_data_loaders(train_file, valid_file, batch_size=32, test_mode=False):
     return train_loader, val_loader
 
 
+def load_config(config_path=None):
+    """Load training configuration from file or use defaults."""
+    if config_path and os.path.exists(config_path):
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+    else:
+        # Default configuration
+        config = {
+            "model": "causal_lob_forecaster",
+            "input_dim": 40,
+            "horizon": 5,
+            "batch_size": 32,
+            "learning_rate": 3e-4,
+            "max_epochs": 20,
+            "patience": 5,
+            "target_pearson": 0.35,
+            "device": "cpu"
+        }
+    return config
+
+
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--test_mode', action='store_true')
-    parser.add_argument('--fast_dev_run', action='store_true')
+    parser = argparse.ArgumentParser(description='Train time series forecasting model')
+    parser.add_argument('--test_mode', action='store_true', help='Run in test mode with small dataset')
+    parser.add_argument('--fast_dev_run', action='store_true', help='Run fast development test')
+    parser.add_argument('--config', type=str, default=None, help='Path to config file')
+    parser.add_argument('--model', type=str, default='causal_lob_forecaster', help='Model name from registry')
+    parser.add_argument('--input_dim', type=int, default=40, help='Input dimension')
+    parser.add_argument('--horizon', type=int, default=5, help='Forecast horizon')
+    parser.add_argument('--target_pearson', type=float, default=0.35, help='Target pearson correlation')
     args = parser.parse_args()
 
-    train_file = 'data/raw/train.parquet'
-    valid_file = 'data/raw/valid.parquet'
+    # Load configuration
+    config = load_config(args.config)
+    
+    # Override with command line arguments
+    if args.model != 'causal_lob_forecaster':
+        config['model'] = args.model
+    if args.input_dim != 40:
+        config['input_dim'] = args.input_dim
+    if args.horizon != 5:
+        config['horizon'] = args.horizon
+    if args.target_pearson != 0.35:
+        config['target_pearson'] = args.target_pearson
 
-    # Create model
-    model = create_model()
+    print(f"📋 Training Configuration:")
+    for key, value in config.items():
+        print(f"  {key}: {value}")
+
+    # Create model using registry
+    print(f"\n🏗️  Creating model: {config['model']} with input_dim={config['input_dim']}, horizon={config['horizon']}")
+    model = get_model(
+        config['model'],
+        input_dim=config['input_dim'],
+        horizon=config['horizon']
+    )
     
     # Create data loaders
+    train_file = 'data/raw/train.parquet'
+    valid_file = 'data/raw/valid.parquet'
+    
+    batch_size = 4 if args.test_mode or args.fast_dev_run else config['batch_size']
     train_loader, val_loader = create_data_loaders(
         train_file, valid_file, 
-        batch_size=4 if args.test_mode or args.fast_dev_run else 32,
+        batch_size=batch_size,
         test_mode=args.test_mode or args.fast_dev_run
     )
     
@@ -181,8 +260,11 @@ def main():
         model=model,
         train_loader=train_loader,
         val_loader=val_loader,
-        device='cpu',
-        max_epochs=2 if args.test_mode or args.fast_dev_run else 20
+        device=config['device'],
+        lr=config['learning_rate'],
+        patience=config['patience'],
+        max_epochs=2 if args.test_mode or args.fast_dev_run else config['max_epochs'],
+        target_pearson=config['target_pearson']
     )
     
     pipeline.run()

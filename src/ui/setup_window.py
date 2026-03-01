@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-
 """
 RALPH UI - 3-Step Project Creation Wizard + Enhanced Execution View
 
@@ -13,12 +12,7 @@ RALPH UI - 3-Step Project Creation Wizard + Enhanced Execution View
 ✅ UI-008: Dark theme, keyboard shortcuts, validation
 ✅ UI-009: Two-phase meta-prompting for implementation-ready suggestions
 ✅ UI-010: Phase 2B PRD backlog expansion with executable tasks
-✅ UI-011: Terminal Wrapper & HITL DARIZ Feedback Integration (Unbuffered + DeepSeek Intercept)
-
-Stage 2/5 UX direction:
-- Primary refinement unit is the Project (PRD/backlog), not ad hoc "tasks".
-- The old Task Refinement tab is now a Project Refinement surface fed by
-  selected project context and wizard-generated PRD.
+✅ UI-011: Terminal Wrapper & HITL DARIZ Feedback Integration (Auto-Fix Streamlined)
 """
 
 import tkinter as tk
@@ -33,6 +27,7 @@ import os
 import sys
 import shutil
 import subprocess
+import re
 from typing import Optional, Dict, List, Any
 
 # Relative imports from parent package
@@ -107,7 +102,7 @@ class AsyncioEventLoopThread(threading.Thread):
 
 
 class ProjectWizard(tk.Toplevel):
-    """3-Step Project Creation / Edit Wizard (UI-001 to UI-010)"""
+    """3-Step Project Creation / Edit Wizard"""
 
     def __init__(
             self,
@@ -1380,7 +1375,7 @@ class RalphUI(tk.Tk):
             messagebox.showerror("Error", f"Failed to save PRD:\n{str(e)}")
 
     def _create_terminal_feedback_tab(self):
-        """Phase 3: Real-time Terminal Wrapper & HITL DARIZ Feedback"""
+        """Phase 3: Real-time Terminal Wrapper & HITL DARIZ Feedback (AUTO-FIX STREAMLINED)"""
         terminal_tab = ttk.Frame(self.notebook)
         self.notebook.add(terminal_tab, text="💻 Terminal & Feedback")
 
@@ -1415,8 +1410,22 @@ class RalphUI(tk.Tk):
         self.hitl_feedback = scrolledtext.ScrolledText(feedback_frame, height=5, font=('Arial', 11))
         self.hitl_feedback.pack(fill='both', expand=True, pady=5)
 
-        ttk.Button(feedback_frame, text="🧠 Trigger DARIZ Refinement Loop", command=self._trigger_dariz_fix).pack(
-            pady=5)
+        btn_frame = ttk.Frame(feedback_frame)
+        btn_frame.pack(fill='x', pady=5)
+
+        ttk.Button(btn_frame, text="🧠 Trigger DARIZ Refinement (Strategy Only)",
+                   command=lambda: self._trigger_dariz_fix(auto_execute=False)).pack(side='left', padx=5)
+
+        auto_btn = tk.Button(
+            btn_frame,
+            text="🤖 Auto-Fix & Run Agents",
+            command=lambda: self._trigger_dariz_fix(auto_execute=True),
+            font=('Arial', 10, 'bold'),
+            bg=self.colors['accent_green'],
+            fg='#000000',
+            padx=10
+        )
+        auto_btn.pack(side='left', padx=5)
 
     def _run_in_terminal(self):
         if not self.orchestrator.current_project_dir:
@@ -1485,8 +1494,8 @@ class RalphUI(tk.Tk):
             except Exception as e:
                 self.live_terminal.insert('end', f"\n[SYSTEM ERROR] Could not kill process: {e}\n", 'error')
 
-    def _trigger_dariz_fix(self):
-        """Pipes terminal output, execution logs, and user feedback into an explicit DARIZ analysis via DeepSeek."""
+    def _trigger_dariz_fix(self, auto_execute=False):
+        """Pipes terminal output and user feedback into DARIZ and generates a JSON PRD for immediate execution."""
         terminal_dump = self.live_terminal.get("1.0", "end").strip()[-2000:]
 
         exec_dump = ""
@@ -1499,12 +1508,15 @@ class RalphUI(tk.Tk):
             messagebox.showwarning("Empty Feedback", "Please provide feedback or run a process to capture tracebacks.")
             return
 
-        messagebox.showinfo("DARIZ Engine",
-                            "Engaging TRIZ Master.\n\nExecuting Kukalev's 7-step DARIZ Algorithm...\nThis will take 15-30 seconds.")
+        if auto_execute:
+            msg = "Engaging TRIZ Master & Auto-Execute.\n\nExecuting 8-step DARIZ Algorithm, generating PRD, and starting execution...\nThis will take 30-45 seconds."
+        else:
+            msg = "Engaging TRIZ Master.\n\nExecuting 8-step DARIZ Algorithm...\nThis will take 15-30 seconds."
+
+        messagebox.showinfo("DARIZ Engine", msg)
 
         async def run_dariz_analysis():
-            logger.info("🧠 [DARIZ Engine] Initiating 7-step Kukalev TRIZ analysis...")
-            logger.info(f"🧠 [DARIZ Engine] Human Strategist Input: {user_strategy[:100]}...")
+            logger.info("🧠 [DARIZ Engine] Initiating 8-step Kukalev TRIZ analysis...")
 
             system_prompt = """<instructions>
 - ALWAYS follow <answering_rules> and <self_reflection>.
@@ -1526,60 +1538,66 @@ class RalphUI(tk.Tk):
 7. Don't use tables if not requested.
 </answering_rules>
 
-<dariz_tool>
-# INPUT DATA (User fills this field)
-USER_SITUATION_INPUT = " " 
+<triz_tool>
+# Stage 0 — INPUT DATA
+<input_data>
+SYSTEM_NAME: deepRLPH Orchestrator / User Project
+SYSTEM_CONTEXT: Resolving Terminal Tracebacks / Agent execution errors
+</input_data>
 
-# DARIZ METHODOLOGY (Based on Kukalev's TRIZ book, Chapter 7)
-The AI must execute the DARIZ algorithm (Didactic Algorithm of Solving Inventive Tasks) in two phases:
-1. **INTERACTIVE DIAGNOSIS**: If the input is incomplete, ask 1-3 targeted questions to clarify the "Conflicting Pair" (КП), the main function, or available resources. Do not hallucinate data; ask the user.
-2. **ALGORITHMIC SOLUTION**: Once data is sufficient, run the 7-step DARIZ process explicitly.
+# Stage 1 — Build the 7 base models (Chapter 1) using the input data.
+For every situation, FIRST reconstruct it via the seven base models before proposing solutions.
+1. SYSTEM model: Name the system and its main purpose.
+2. FUNCTION model: State main useful function and harmful/parasitic functions.
+3. EVENT model: Lay out chain of past -> present error -> future fix.
+4. RESOURCE model: List resources (code modification, bash commands).
+5. IFR (Ideal Final Result): Formulate IFR where the system provides the required effect.
+6. CONTRADICTION model: State administrative and technical contradictions.
+7. SU‑FIELD (VEPOL) model: Identify interactions.
 
-# DARIZ STEPS to execute:
-1. **From Problem Situation (ПС) to Task Model (МЗ)**: 
-   - Convert the messy narrative into a crisp system model (elements, interactions).
-2. **Clarify Constraints and Function**:
-   - What is the main useful function? What are the rigid limits (time, cost, law)?
-3. **Extract Conflicting Pair (КП) and Technical Contradiction (ТП)**:
-   - Identify the pair of elements in conflict. 
-   - State the contradiction: "If we do X, parameter A improves but B worsens."
-4. **Formulate IFR (Ideal Final Result)**:
-   - "The system ITSELF (or its environment) provides the required effect without external costs."
-5. **List Substance-Field Resources (ВПР)**:
-   - List available resources inside the system and in the supersystem (materials, fields, time, information, people).
-6. **Combine IFR + Resources into Solution Ideas**:
-   - Systematically map resources to the IFR. How can resource X solve the problem "by itself"?
-7. **Test and Verify**:
-   - Check if the proposed solution resolves the contradiction. If weak, loop back to Step 3 (change КП) or Step 1 (refine task).
+# Stage 2 to 7 — Execute TRIZ Analysis
+Run through Dialectical analysis, restructuring, avoiding mental inertia, and use ARIZ-style resolution to design a concrete fix for the provided tracebacks/feedback.
+
+# Stage 8 — DEPLOYMENT / IMPLEMENTATION (CRITICAL OUTPUT)
+You must translate the solution into a strict, deepRLPH-compatible JSON PRD Backlog that an AI Agent can execute.
 
 # OUTPUT FORMAT
 - Start with the Expert Role declaration.
-- If data is missing, ask questions first.
-- If data is sufficient, present the full 7-step DARIZ analysis.
-- Conclude with 2-3 concrete, actionable solution concepts derived from the analysis that can be directly converted into a deepRLPH PRD.
-</dariz_tool>
+- Present the 8-stage DARIZ analysis.
+- CRITICAL: Conclude by outputting ONLY valid JSON PRD wrapped in ```json ... ``` containing the specific user stories needed to implement your fix. Use the standard deepRLPH format ("total_items", "user_stories", "id", "title", "description", "acceptance_criteria", "verification", "files_touched", "status": "todo").
+</triz_tool>
 
 <example>
-I'll answer as a world-famous TRIZ Expert PhD in Applied Creative Problem Solving with an International TRIZ Master Level 5 award.
+I'll answer as a world-famous TRIZ expert PhD in Applied Creative Problem Solving with an international TRIZ Master Level 5 award.
 
-**TL;DR**: [Brief summary of the diagnosis]
+TL;DR: The terminal output indicates an OOM crash due to caching.
 
 **DARIZ ANALYSIS:**
 1. **Task Model**: ...
-2. **Constraints**: ...
-3. **Conflicting Pair & Contradiction**: ...
-4. **IFR**: ...
-5. **Resources**: ...
-6. **Solution Synthesis**: ...
-7. **Verification**: ...
+<Analysis Stages 2-7...>
 
 **Concrete Solutions (PRD Action Mandate)**:
-- [Solution 1]
-- [Solution 2]
+```json
+{
+  "task": "Implement fix for OOM crash",
+  "domain": "time_series_forecasting",
+  "total_items": 1,
+  "user_stories": [
+    {
+      "id": "FIX-001",
+      "title": "Resolve Memory Leak in Dataloader",
+      "description": "Modify the dataloader to stream from disk instead of RAM...",
+      "acceptance_criteria": ["RAM stays below 16GB", "Epoch completes"],
+      "verification": "python -c \"import sys; print('Testing limits')\"",
+      "files_touched": ["src/data/loader.py"],
+      "status": "todo"
+    }
+  ]
+}
 </example>
 </instructions>"""
 
-            user_message = f"USER_SITUATION_INPUT:\nTERMINAL TRACEBACK:\n{terminal_dump}\n\nAGENT EXECUTION LOGS:\n{exec_dump}\n\nHUMAN STRATEGIST FEEDBACK:\n{user_strategy}"
+            user_message = f"TERMINAL TRACEBACK:\n{terminal_dump}\n\nAGENT EXECUTION LOGS:\n{exec_dump}\n\nHUMAN STRATEGIST FEEDBACK:\n{user_strategy}"
 
             try:
                 logger.info("📡 [DARIZ Engine] Transmitting payload to DeepSeek API (Thinking Budget: 8000 tokens)...")
@@ -1595,18 +1613,55 @@ I'll answer as a world-famous TRIZ Expert PhD in Applied Creative Problem Solvin
                     logger.info("✅ [DARIZ Engine] DeepSeek returned successful TRIZ synthesis!")
                     dariz_strategy = result['response']
 
+                    # Try to extract JSON PRD
+                    json_prd = None
+                    json_match = re.search(r'```json\n(.*?)\n```', dariz_strategy, re.DOTALL)
+                    if json_match:
+                        try:
+                            json_prd = json.loads(json_match.group(1).strip())
+                            logger.info("✅ [DARIZ Engine] Successfully parsed JSON PRD from DARIZ output.")
+                        except json.JSONDecodeError:
+                            logger.warning("⚠️ [DARIZ Engine] Failed to parse JSON block from output.")
+
                     def update_ui():
                         try:
+                            # If we got a valid PRD, update it
+                            if json_prd and getattr(self.orchestrator, 'current_project_dir', None):
+                                normalized_prd = self.orchestrator._normalize_prd_for_engine(json_prd)
+                                self.current_prd = normalized_prd
+
+                                # Write to disk
+                                prd_file = self.orchestrator.current_project_dir / "prd.json"
+                                with open(prd_file, 'w', encoding='utf-8') as f:
+                                    json.dump(normalized_prd, f, indent=2)
+
+                                # Update UI Text
+                                if hasattr(self, 'prd_preview'):
+                                    self.prd_preview.delete('1.0', 'end')
+                                    self.prd_preview.insert('1.0', json.dumps(normalized_prd, indent=2))
+
+                                if auto_execute:
+                                    logger.info("🚀 [DARIZ Engine] Auto-Execute Triggered! Switching to Execution tab.")
+                                    self.notebook.select(3)  # Execution tab
+                                    self._execute_agents()
+                                    return  # Stop here for auto-execute
+
+                            # Normal flow (no auto-execute, or JSON failed)
                             self.notebook.select(2)  # Route to Project Refinement
                             if hasattr(self, 'task_text'):
                                 self.task_text.delete('1.0', 'end')
-                                self.task_text.insert('1.0',
-                                                      f"=== KUKALEV DARIZ SYNTHESIS ===\n{dariz_strategy}\n\n=== PRD INSTRUCTION ===\nConvert the 'Concrete Solutions' above into an actionable PRD.")
+                                self.task_text.insert('1.0', f"=== KUKALEV DARIZ SYNTHESIS ===\n{dariz_strategy}")
+
                             self.hitl_feedback.delete('1.0', 'end')
-                            logger.info(
-                                "✅ [DARIZ Engine] UI updated with new DARIZ strategy. Waiting for User to generate PRD.")
+                            if json_prd:
+                                messagebox.showinfo("DARIZ Engine",
+                                                    "Analysis complete and PRD updated automatically! Check the Refinement Tab.")
+                            else:
+                                messagebox.showinfo("DARIZ Engine",
+                                                    "Analysis complete, but no valid JSON PRD was found. Please review the Refinement Tab.")
+
                         except Exception as e:
-                            logger.error(f"❌ [DARIZ Engine] Failed to route to refinement tab: {e}")
+                            logger.error(f"❌ [DARIZ Engine] UI Update failed: {e}")
 
                     self.after(0, update_ui)
                 else:
@@ -1634,7 +1689,8 @@ I'll answer as a world-famous TRIZ Expert PhD in Applied Creative Problem Solvin
         # 🆕 NEW: Execution Mode Selector (Swarm vs Council)
         ttk.Label(controls, text="Mode:").pack(side='left', padx=5)
         self.exec_mode_var = tk.StringVar(value='parallel')
-        self.mode_cb = ttk.Combobox(controls, textvariable=self.exec_mode_var, values=['parallel', 'council'], state='readonly', width=10)
+        self.mode_cb = ttk.Combobox(controls, textvariable=self.exec_mode_var, values=['parallel', 'council'],
+                                    state='readonly', width=10)
         self.mode_cb.pack(side='left', padx=5)
         self.mode_cb.bind('<<ComboboxSelected>>', self._on_agents_change)
 
@@ -1654,7 +1710,8 @@ I'll answer as a world-famous TRIZ Expert PhD in Applied Creative Problem Solvin
 
         ttk.Button(controls, text="⏹️ Stop", command=self._stop_execution).pack(side='left', padx=5)
 
-        self.agents_status_label = ttk.Label(container, text="agents: requested=4, effective=4, stories=0, mode=parallel")
+        self.agents_status_label = ttk.Label(container,
+                                             text="agents: requested=4, effective=4, stories=0, mode=parallel")
         self.agents_status_label.pack(anchor='w', pady=(5, 0))
 
         ttk.Label(container, text="Progress:", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(20, 5))
@@ -1687,8 +1744,10 @@ I'll answer as a world-famous TRIZ Expert PhD in Applied Creative Problem Solvin
             n = getattr(self, "_last_valid_agents", 1)
         self._last_valid_agents = n
         self.agents_var.set(str(n))
-        try: self._update_agents_hint()
-        except Exception: pass
+        try:
+            self._update_agents_hint()
+        except Exception:
+            pass
 
     def _get_backlog_size(self) -> int:
         prd = self.current_prd
