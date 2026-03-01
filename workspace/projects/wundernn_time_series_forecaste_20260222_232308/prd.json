@@ -1,29 +1,41 @@
 {
   "user_stories": [
     {
-      "id": "EXEC-001",
-      "title": "Fix DAIN input dimension mismatch in CausalLOBForecaster",
-      "description": "Update the feature splitting logic in CausalLOBForecaster to correctly assign 26 features to the DAIN normalization layer when the total input dimension is 40. Adjust slice indices or compute dynamic splits based on input_dim to ensure DAIN receives the expected 26 features instead of 14, resolving the dimension mismatch crash during training.",
+      "id": "FIX-REGISTRY-001",
+      "title": "Add automatic model discovery to registry",
+      "description": "Modify src/models/registry.py to automatically scan and import all model modules in the models directory when get_model() is called and registry is empty",
       "acceptance_criteria": [
-        "CausalLOBForecaster can be instantiated with input_dim=40 without errors.",
-        "Forward pass with a random tensor of shape (batch, seq_len, 40) completes without dimension mismatch errors.",
-        "During forward pass, the input tensor to DAIN normalization has exactly 26 feature dimensions as verified by shape checks."
+        "Registry auto-discovers models in models/*.py",
+        "Backward compatible with @register_model decorator",
+        "No manual imports needed for basic usage"
       ],
-      "verification": "python -c \"import torch; from src.models.causal_lob_forecaster import CausalLOBForecaster; model = CausalLOBForecaster(input_dim=40); x = torch.randn(2, 10, 40); out = model(x); assert out is not None, 'Forward pass failed'; print('Forward pass successful')\"",
-      "status": "done"
+      "verification": "Run: python -c 'from src.models.registry import get_model; print(get_model(\"causal_lob_forecaster\", input_dim=40, horizon=5))'",
+      "status": "todo"
     },
     {
-      "id": "EXEC-002",
-      "title": "Add unit test for CausalLOBForecaster dimension handling and causality",
-      "description": "Extend the existing test file tests/test_causal_lob_forecaster.py with a new test that verifies the model correctly handles input dimensions and maintains causality. This test will use random tensors to check input-output shapes and ensure no future leakage, preventing regression of dimension-related issues.",
+      "id": "FIX-REGISTRY-002",
+      "title": "Create proper models/__init__.py with explicit imports",
+      "description": "Create/update __init__.py to import all model classes explicitly, ensuring they're registered on module load",
       "acceptance_criteria": [
-        "New test function test_causal_lob_forecaster_dimensions passes when run with pytest.",
-        "Test asserts that model output shape is correct for a given input shape (e.g., (batch, seq_len, input_dim)).",
-        "Test includes a causality check, such as verifying that predictions do not depend on future time steps via masking or gradient analysis."
+        "__init__.py imports all model classes",
+        "Registry populated at import time",
+        "Models available via 'from models import *'"
       ],
-      "verification": "python -m pytest tests/test_causal_lob_forecaster.py::test_causal_lob_forecaster_dimensions -xvs",
-      "status": "failed"
+      "verification": "Run: python -c 'from src.models.registry import _MODELS; print(\"Models:\", list(_MODELS.keys()))'",
+      "status": "todo"
+    },
+    {
+      "id": "FIX-REGISTRY-003",
+      "title": "Add validation to train.py for model availability",
+      "description": "Add pre-check in train.py that validates model exists in registry before attempting to create it, with helpful error message",
+      "acceptance_criteria": [
+        "Early validation of model name",
+        "Clear error suggesting 'available models: ...'",
+        "Prevents traceback cascade"
+      ],
+      "verification": "Run training with non-existent model, get clear error not traceback",
+      "status": "todo"
     }
   ],
-  "total_items": 2
+  "total_items": 3
 }

@@ -716,7 +716,8 @@
         "Story ML-006 succeeded by agent_1 in Council.",
         "Story ML-007 failed by agent_1 in Council.",
         "Story ML-008 failed by agent_1 in Council."
-      ]
+      ],
+      "self_reflection": "You are the Architect. Priorities: (1) correctness, (2) minimal, local patches, (3) keeping solution.py / PredictionModel and training code coherent, (4) respecting sequence warm-up 0-98 and need_prediction gating, (5) preserving determinism and fixed seeds."
     },
     "agent_2": {
       "id": "agent_2",
@@ -844,7 +845,8 @@
         "Story ML-005 failed by agent_2 in Council.",
         "Story ML-007 succeeded by agent_2 in Council.",
         "Story ML-008 failed by agent_2 in Council."
-      ]
+      ],
+      "self_reflection": "You are the Reviewer. Priorities: (1) catch OOM and latency risks, (2) simplify data paths and loaders, (3) avoid unnecessary copies / caches that violate 16GB RAM and 60-minute constraints, (4) ensure deterministic behaviour under fixed seeds."
     },
     "agent_3": {
       "id": "agent_3",
@@ -942,7 +944,8 @@
         "Story ML-005 failed by agent_3 in Council.",
         "Story ML-005 succeeded by agent_3 in Council.",
         "Story ML-008 failed by agent_3 in Council."
-      ]
+      ],
+      "self_reflection": "You are the Refiner. Priorities: (1) identify technical contradictions in the implementation, (2) apply DARIZ/TRIZ steps to restructure code with fewer moving parts, (3) keep interface contracts unchanged, (4) make changes easy to revert if they underperform."
     },
     "agent_4": {
       "id": "agent_4",
@@ -1020,7 +1023,8 @@
         "Story ML-004 failed by agent_4 in Council.",
         "Story ML-005 failed by agent_4 in Council.",
         "Story ML-008 failed by agent_4 in Council."
-      ]
+      ],
+      "self_reflection": "You are the Verifier. Priorities: (1) ensure tests, metric computations, and clipping [-6, 6] match the competition spec, (2) strictly check PredictionModel.predict and ONNX export / solution.py behaviour, (3) never mark a story done without at least one deterministic verification run."
     },
     "agent_5": {
       "id": "agent_5",
@@ -1058,7 +1062,8 @@
       "notes": [
         "Story ML-004 failed by agent_5 in Council.",
         "Story ML-005 failed by agent_5 in Council."
-      ]
+      ],
+      "self_reflection": null
     },
     "agent_6": {
       "id": "agent_6",
@@ -1096,7 +1101,8 @@
       "notes": [
         "Story ML-004 failed by agent_6 in Council.",
         "Story ML-005 failed by agent_6 in Council."
-      ]
+      ],
+      "self_reflection": null
     },
     "agent_7": {
       "id": "agent_7",
@@ -1134,7 +1140,8 @@
       "notes": [
         "Story ML-004 failed by agent_7 in Council.",
         "Story ML-005 failed by agent_7 in Council."
-      ]
+      ],
+      "self_reflection": null
     }
   }
 }

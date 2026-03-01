@@ -309,7 +309,8 @@ def main():
     # Add causal_mask parameter if specified
     if 'causal_mask' in config:
         model_kwargs['causal_mask'] = config['causal_mask']
-    
+
+    import src.models.causal_lob_forecaster
     model = get_model(config['model'], **model_kwargs)
     
     # Create data loaders

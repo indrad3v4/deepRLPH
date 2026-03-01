@@ -145,6 +145,57 @@ class ExecutionEngine:
 
         return {"status": "success" if not failed else "partial", "completed": completed, "failed": failed}
 
+    async def _run_swarm(self, stories, profiles, orchestrator_prompt, exec_id) -> Dict[str, Any]:
+        """Parallel Swarm Mode: Concurrent execution using an asyncio Queue."""
+        queue = asyncio.Queue()
+        for story in stories:
+            await queue.put(story)
+
+        completed, failed = [], []
+        total = len(stories)
+        completed_count = 0
+        agent_ids = list(profiles.keys())
+
+        async def worker(agent_id: str):
+            nonlocal completed_count
+            profile = profiles[agent_id]
+            swarm_prompt = f"{orchestrator_prompt}\n\nROLE: Parallel Swarm Worker"
+
+            while True:
+                try:
+                    story = queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+
+                story_id = story.get("id", "unknown")
+                await self._log(f"📌 [{agent_id}] Picked up {story_id}: {story.get('title')}")
+
+                # Pass the story to the autonomous tool loop
+                result = await self._execute_story(story, swarm_prompt, agent_id, profile)
+
+                if result.get("status") == "success":
+                    completed.append({"id": story_id, "agent": agent_id})
+                    await self._log(f"   ✅ [{agent_id}] Story {story_id} PASSED")
+                else:
+                    err = result.get("error", "Unknown error")
+                    failed.append({"id": story_id, "error": err})
+                    await self._log(f"   ❌ [{agent_id}] Story {story_id} FAILED: {err}")
+
+                completed_count += 1
+                await self._progress((completed_count / total) * 100)
+                queue.task_done()
+
+        # Spawn concurrent workers
+        workers = [asyncio.create_task(worker(aid)) for aid in agent_ids]
+        if workers:
+            await asyncio.gather(*workers)
+
+        return {
+            "status": "success" if not failed else "partial",
+            "completed": completed,
+            "failed": failed
+        }
+
     # ------------------------------------------------------------------
     # Core Logic & Verification (Pure Async)
     # ------------------------------------------------------------------
