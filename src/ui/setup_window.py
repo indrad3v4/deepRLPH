@@ -1071,6 +1071,26 @@ class RalphUI(tk.Tk):
 
         logger.info("✅ RALPH UI initialized with 3-step wizard + Phase 2B PRD + project refinement")
 
-    # (rest of RalphUI unchanged)
+    def _on_close(self) -> None:
+        """Gracefully shut down background event loop and destroy the window."""
+        try:
+            if hasattr(self, "async_thread") and self.async_thread:
+                self.async_thread.stop()
+        except Exception as e:
+            logger.warning("Error stopping AsyncioEventLoopThread on close: %s", e)
+        try:
+            self.destroy()
+        except Exception as e:
+            logger.warning("Error destroying main window on close: %s", e)
 
-    # ...
+    def _setup_styles(self) -> None:
+        """Placeholder for UI styling. Currently no-op to keep GUI minimal but functional."""
+        pass
+
+    def _create_layout(self) -> None:
+        """Placeholder for main layout creation. Currently no-op; future iterations restore full layout."""
+        pass
+
+    def _refresh_projects(self) -> None:
+        """Placeholder for project list refresh. Avoids crashes until full UI wiring is restored."""
+        pass
