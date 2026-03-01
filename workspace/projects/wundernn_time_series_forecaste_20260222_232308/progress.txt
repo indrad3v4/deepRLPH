@@ -421,3 +421,10 @@ NameError: name 'sys' is not defined
 
 [2026-03-01 00:39:04] ML-007 - SUCCESS
 [agent=agent_1] Verification passed. Metric: N/A
+
+[2026-03-01 01:54:59] ML-005 - FAILED
+[agent=agent_1] Command failed with code 1:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+AssertionError: Causality violated!
+

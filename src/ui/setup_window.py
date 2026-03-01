@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+
 """
 RALPH UI - 3-Step Project Creation Wizard + Enhanced Execution View
 
@@ -1613,15 +1614,27 @@ TL;DR: The terminal output indicates an OOM crash due to caching.
                     logger.info("✅ [DARIZ Engine] DeepSeek returned successful TRIZ synthesis!")
                     dariz_strategy = result['response']
 
-                    # Try to extract JSON PRD
+                    # Try to extract JSON PRD robustly
                     json_prd = None
-                    json_match = re.search(r'```json\n(.*?)\n```', dariz_strategy, re.DOTALL)
+                    json_content = ""
+
+                    # 1. Try strict markdown extraction
+                    json_match = re.search(r'```(?:json)?\s*(.*?)\s*```', dariz_strategy, re.DOTALL)
                     if json_match:
+                        json_content = json_match.group(1).strip()
+                    else:
+                        # 2. Fallback: Try to find raw JSON brackets if markdown is missing
+                        start_idx = dariz_strategy.find('{')
+                        end_idx = dariz_strategy.rfind('}') + 1
+                        if start_idx != -1 and end_idx != 0:
+                            json_content = dariz_strategy[start_idx:end_idx]
+
+                    if json_content:
                         try:
-                            json_prd = json.loads(json_match.group(1).strip())
-                            logger.info("✅ [DARIZ Engine] Successfully parsed JSON PRD from DARIZ output.")
-                        except json.JSONDecodeError:
-                            logger.warning("⚠️ [DARIZ Engine] Failed to parse JSON block from output.")
+                            json_prd = json.loads(json_content)
+                            logger.info("✅ [DARIZ Engine] Successfully parsed JSON PRD.")
+                        except json.JSONDecodeError as e:
+                            logger.warning(f"⚠️ [DARIZ Engine] JSON decode failed: {e}")
 
                     def update_ui():
                         try:
@@ -1641,7 +1654,22 @@ TL;DR: The terminal output indicates an OOM crash due to caching.
                                     self.prd_preview.insert('1.0', json.dumps(normalized_prd, indent=2))
 
                                 if auto_execute:
-                                    logger.info("🚀 [DARIZ Engine] Auto-Execute Triggered! Switching to Execution tab.")
+                                    logger.info("🚀 [DARIZ Engine] Auto-Execute Triggered! Smart-configuring agents...")
+
+                                    # --- 🧠 SMART SETUP INJECTION ---
+                                    # Bug fixes require deep, sequential reasoning.
+                                    # We force 'council' mode (Mixture of Experts) and exactly 4 agents
+                                    # (Architect -> Reviewer -> Refiner -> Verifier) for maximum success rate.
+                                    self.exec_mode_var.set('council')
+                                    self.mode_cb.set('council')
+                                    self.agents_var.set('4')
+                                    self._last_valid_agents = 4
+                                    try:
+                                        self._update_agents_hint()
+                                    except Exception:
+                                        pass
+                                    # --------------------------------
+
                                     self.notebook.select(3)  # Execution tab
                                     self._execute_agents()
                                     return  # Stop here for auto-execute
