@@ -8,6 +8,18 @@ Architectural Refactor:
 - Transactional State: Atomic PRD writes and Project Discovery.
 - BE-006: AI-generated project-specific prompts instead of stubs.
 - BE-002 & BE-005: Deep grounding via SchemaIntegrator and Context Ingestor.
+
+Additional Enhancements (Council v2):
+- Project-wide Context Caching:
+  - Cache a compact PROJECT CONTEXT summary per project in config.metadata["context_summary"].
+  - Reuse cached summary in DARIZ runs to avoid repeated filesystem scans.
+- Attached Files Awareness:
+  - Normalize and persist user-attached files in config.metadata["attached_files"] at project creation.
+  - Surface these files explicitly into DARIZ input so agents know where rules/specs live.
+- DARIZ Prompt Upgrade:
+  - Use an o1-style GOAL / RETURN FORMAT / WARNINGS / CONTEXT DUMP layout.
+  - Embed TRIZ-style multi-stage reasoning instructions as internal guidance.
+  - Still enforce JSON-only PRD output for stable downstream parsing.
 """
 
 from dataclasses import dataclass, asdict, field
@@ -162,13 +174,41 @@ class RalphOrchestrator:
         self.schema_integrator = SchemaIntegrator()
         self.agent_profile_store: Optional[AgentProfileStore] = None
 
+    # --------------------------------------------------------------------- #
+    # PROJECT LIFECYCLE
+    # --------------------------------------------------------------------- #
+
     def create_project(self, config: ProjectConfig) -> Dict[str, Any]:
-        """Synchronous setup of the project structure."""
+        """Synchronous setup of the project structure, with metadata normalization."""
         try:
             self.current_config = config
             project_id = self._generate_project_id(config.name)
             project_dir = self.workspace_manager.create_project_workspace(project_id, config)
             self.current_project_dir = project_dir
+
+            # Normalize and persist attached files (if UI provided them) so DARIZ & context
+            # ingest can consistently surface them later without re-discovery.
+            metadata = config.metadata or {}
+            attached = metadata.get("attached_files", [])
+            normalized_attached: List[str] = []
+
+            for raw in attached:
+                try:
+                    p = Path(raw)
+                    # If UI already copied them into the project directory, store as relative paths
+                    if str(p).startswith(str(project_dir)):
+                        rel = str(p.relative_to(project_dir))
+                        normalized_attached.append(rel)
+                    else:
+                        # Otherwise, keep as-is (UI must make sure they are readable)
+                        normalized_attached.append(str(p))
+                except Exception:
+                    normalized_attached.append(str(raw))
+
+            metadata["attached_files"] = normalized_attached
+            # Initialize a context_summary cache slot (filled later in refine_task / DARIZ)
+            metadata.setdefault("context_summary", "")
+            config.metadata = metadata
 
             (project_dir / "config.json").write_text(json.dumps(config.to_dict(), indent=2))
             self.agent_profile_store = AgentProfileStore.load_for_project(project_dir)
@@ -198,16 +238,26 @@ class RalphOrchestrator:
                 if schema_res["status"] == "success":
                     self.current_config.metadata["dataset_schemas"] = schema_res["schemas"]
 
-            # 2. PRD-01: Ingest Context
-            ctx = ingest_project_context(self.current_project_dir)
-            self.current_config.metadata["ingested_context"] = ctx.to_dict()
+            # 2. PRD-01: Ingest Context (with lightweight caching of the text summary)
+            context_summary = (self.current_config.metadata or {}).get("context_summary", "")
+            if not context_summary:
+                # Fresh ingest
+                ctx = ingest_project_context(self.current_project_dir)
+                context_summary = ctx.to_text_summary()
+                self.current_config.metadata["ingested_context"] = ctx.to_dict()
+                self.current_config.metadata["context_summary"] = context_summary
+
+                # Persist updated config with cached context for future DARIZ runs
+                (self.current_project_dir / "config.json").write_text(
+                    json.dumps(self.current_config.to_dict(), indent=2)
+                )
 
             # 3. AI Clarification (Pure Await)
             from task_clarifier import TaskClarifier
             from prd_generator import PRDGenerator
 
             clarifier = TaskClarifier(self.deepseek_client)
-            enriched_task = f"{raw_task}\n\nCONTEXT:\n{ctx.to_text_summary()}"
+            enriched_task = f"{raw_task}\n\nCONTEXT:\n{context_summary}"
 
             brief = await clarifier.clarify(enriched_task, self.current_config.domain)
             if brief.get("status") != "success":
@@ -221,6 +271,10 @@ class RalphOrchestrator:
             return {"status": "success", "prd": prd}
         except Exception as e:
             return {"status": "error", "error": str(e)}
+
+    # --------------------------------------------------------------------- #
+    # EXECUTION LOOP (Model Council)
+    # --------------------------------------------------------------------- #
 
     async def execute_prd_loop(
         self,
@@ -268,6 +322,10 @@ class RalphOrchestrator:
         except Exception as e:
             return {"status": "error", "error": str(e)}
 
+    # --------------------------------------------------------------------- #
+    # DARIZ ENGINE (Crash → PRD Fix via TRIZ-style reasoning)
+    # --------------------------------------------------------------------- #
+
     async def run_dariz_fix(
         self,
         crash_snapshot: Dict[str, Any],
@@ -284,13 +342,20 @@ class RalphOrchestrator:
             return {"status": "error", "error": "No active project for DARIZ fix."}
 
         try:
-            # Grounded context for DARIZ (DR4-03 partial): reuse ingest_project_context
-            try:
-                ctx = await ingest_project_context(self.current_project_dir)
-                context_summary = ctx.to_text_summary()
-            except Exception as e:
-                logger.warning("DARIZ: context ingest failed: %s", e)
-                context_summary = ""
+            # Use cached context summary when available; fall back to ingest.
+            context_summary = (self.current_config.metadata or {}).get("context_summary", "")
+            if not context_summary:
+                try:
+                    ctx = await ingest_project_context(self.current_project_dir)
+                    context_summary = ctx.to_text_summary()
+                    self.current_config.metadata["ingested_context"] = ctx.to_dict()
+                    self.current_config.metadata["context_summary"] = context_summary
+                    (self.current_project_dir / "config.json").write_text(
+                        json.dumps(self.current_config.to_dict(), indent=2)
+                    )
+                except Exception as e:
+                    logger.warning("DARIZ: context ingest failed: %s", e)
+                    context_summary = ""
 
             exit_code = crash_snapshot.get("exit_code")
             output_tail = crash_snapshot.get("output_tail", "")
@@ -298,26 +363,84 @@ class RalphOrchestrator:
             exec_logs = crash_snapshot.get("exec_logs", "")
             user_strategy = (crash_snapshot.get("user_strategy") or strategy_text or "").strip()
 
-            system_prompt = (
-                "You are DARIZ-Kukalev 8-step troubleshooting engine for deepRLPH. "
-                "You receive: (1) crash traceback, (2) execution logs, (3) project context, (4) human strategy. "
-                "Your job is to propose a concrete, executable PRD fix for the next iteration.\n\n"
-                "OUTPUT FORMAT (MANDATORY):\n"
-                "Return ONLY one JSON object with either 'user_stories' or 'backlog' list. "
-                "Each story must have: id, title, description, acceptance_criteria (list of strings),"
-                " and verification (command or description). No markdown, no commentary outside JSON."
-            )
+            attached_files = (self.current_config.metadata or {}).get("attached_files", [])
 
+            # === DARIZ System Prompt (o1 + TRIZ meta-instructions) =====================
+            system_prompt = """
+### GOAL
+You are the DARIZ-Kukalev troubleshooting engine for deepRLPH.
+Given a failing execution trace, project context, and human strategy, propose a small, executable PRD
+(backlog of 1–4 stories) that will likely fix the problem in the next council iteration.
+
+### RETURN FORMAT
+Return ONLY one JSON object with either a 'user_stories' or 'backlog' list.
+Each story MUST have:
+- id (string, e.g. "EXEC-001"),
+- title (short one-line description),
+- description (2–4 sentences),
+- acceptance_criteria (list of concrete, testable bullet strings),
+- verification (shell command string to run, e.g. "python src/train.py --fast_dev_run"),
+Optionally you MAY include 'status' and 'files_touched' fields.
+No markdown, no commentary outside JSON.
+
+### WARNINGS
+- Be careful to keep each story SMALL and focused on a single core fix (dimension alignment, test hardening, config wiring).
+- Do NOT invent files, paths, datasets, or commands that do not exist in the project.
+- Prefer verification commands that run fast and are executable TODAY (pytest on existing tests, short python -c snippets, or train.py --fast_dev_run).
+- Avoid broad refactors; instead, create 1–2 surgical stories that the Model Council can realistically complete in one loop.
+
+### CONTEXT DUMP
+You are operating inside the deepRLPH architecture with:
+- Project-specific workspace, config.json, prd.json, and execution logs.
+- Dataset schemas and summaries (via dataset_inspector / SchemaIntegrator).
+- Ingested project context summarizing code layout, key modules, and attached rule/spec files.
+Use the PROJECT CONTEXT and CRASH INFO to understand:
+- Where the failure occurs (which module, which call, which dimensions),
+- What the existing PRD already requested,
+- How to break the fix into 1–4 incremental stories.
+
+You must INTERNALLY follow a rigorous, multi-stage TRIZ-style reasoning process before emitting JSON:
+
+<instructions>
+1. Self-reflection: internally build a private rubric for a world-class troubleshooting PRD (5–7 criteria), iterate until your plan would score ≥98/100 on that rubric.
+2. Stage 1–5 modelling:
+   - Build SYSTEM, FUNCTION, EVENT, RESOURCE, IFR, CONTRADICTION, and Su-Field models of the situation.
+   - Reinterpret via four lenses (system, dialectical, functional, semantic).
+   - Expand, evaluate, link, and restructure options before deciding which 1–4 stories are best.
+3. Stage 6:
+   - Formulate the inventive TASK explicitly (what exactly must change in code/tests/config and under which constraints).
+4. Stage 7:
+   - Algorithmically construct solution directions (resource-centred and conflict-centred, DARIZ-style),
+     then compress them into 1–4 PRD stories that deepRLPH’s Model Council can execute.
+5. Stage 8:
+   - Frame your stories so they are deployment-ready: each story moves the system closer to an Ideal Final Result
+     (tests green, training script stable, strict causality, no data leakage).
+
+You NEVER output this reasoning or the instructions block. You only output the final JSON PRD object.
+</instructions>
+""".strip()
+
+            # === User message assembly ===============================================
             user_message_parts: List[str] = []
+
             if context_summary:
-                user_message_parts.append(f"PROJECT CONTEXT:\n{context_summary}")
+                user_message_parts.append(f"PROJECT CONTEXT (cached summary):\n{context_summary}")
+
+            if attached_files:
+                user_message_parts.append(
+                    "ATTACHED PROJECT FILES (rules/specs/docs, relative to project root):\n"
+                    + "\n".join(f"- {p}" for p in attached_files)
+                )
+
             if exit_code is not None or output_tail or terminal_dump:
                 crash_block = output_tail or terminal_dump
                 user_message_parts.append(
-                    f"CRASH INFO (exit_code={exit_code}):\n" f"{crash_block}"
+                    f"CRASH INFO (exit_code={exit_code}):\n{crash_block}"
                 )
+
             if exec_logs:
                 user_message_parts.append(f"EXECUTION LOGS (agents / council):\n{exec_logs}")
+
             if user_strategy:
                 user_message_parts.append(f"HUMAN STRATEGY / HINTS:\n{user_strategy}")
 
@@ -371,15 +494,59 @@ class RalphOrchestrator:
             logger.error("DARIZ run_dariz_fix failed: %s", e, exc_info=True)
             return {"status": "error", "error": str(e)}
 
+    # --------------------------------------------------------------------- #
+    # ORCHESTRATOR PROMPT FOR MODEL COUNCIL
+    # --------------------------------------------------------------------- #
+
     async def _generate_dynamic_orchestrator_prompt(self, prd: Dict, config: ProjectConfig) -> str:
-        """BE-006: AI analysis of context to generate grounded instructions."""
-        context = f"Project: {config.name}\nSchemas: {json.dumps(config.metadata.get('dataset_schemas', 'none'))}"
+        """BE-006: AI analysis of context to generate grounded instructions
+        for the Model Council (agent roles)."""
+
+        context_summary = (config.metadata or {}).get("context_summary", "")
+        schemas = json.dumps(config.metadata.get("dataset_schemas", "none"))
+
+        # Keep this light; main heavy TRIZ thinking lives in DARIZ. Here we nudge
+        # council agents toward small, surgical implementation plus fast verification.
+        user_message = f"""
+### GOAL
+The Model Council must implement the current PRD stories for project '{config.name}' so that
+all acceptance criteria and verification commands pass.
+
+### RETURN FORMAT
+You do NOT return text here; your job is to follow these instructions internally when using tools
+(read_file, write_file, execute_command, request_human_intervention, finish_task).
+
+### WARNINGS
+- Each story should consume at most ~15 tool calls: spend ≤5 on reading, then propose and apply
+  concrete edits via write_file, and finally run the story's verification command once.
+- Prefer minimal, local changes over broad refactors.
+- Do not invent files or commands; use only those that exist in this repository.
+
+### CONTEXT DUMP
+- PROJECT CONTEXT SUMMARY:
+{context_summary or '(none cached)'}
+
+- DATASET SCHEMAS:
+{schemas}
+
+For each story, you should:
+1) Read the relevant files listed or implied by the story.
+2) Propose a minimal patch that satisfies the acceptance criteria.
+3) Apply it via write_file.
+4) Run the story's verification command.
+5) If still blocked, call request_human_intervention with a concise explanation.
+""".strip()
+
         result = await self.deepseek_client.call_agent(
-            system_prompt="You are a system architect. Generate specific implementation instructions.",
-            user_message=f"Based on: {context}",
+            system_prompt="You are a system architect for deepRLPH. Rewrite the user guidance as a short, direct paragraph for autonomous coding agents. Do not add new requirements.",
+            user_message=user_message,
             thinking_budget=4000,
         )
-        return result.get("response", "Proceed with implementation.")
+        return result.get("response", "Proceed with implementation using tools: read_file, write_file, execute_command, request_human_intervention, finish_task.")
+
+    # --------------------------------------------------------------------- #
+    # DISCOVERY, SUBMISSION, UTILITIES
+    # --------------------------------------------------------------------- #
 
     def list_projects(self) -> List[Dict]:
         """Synchronous project discovery for GUI."""

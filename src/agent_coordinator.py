@@ -29,7 +29,7 @@ class AgentCoordinator(PRDAgentAssignmentMixin):
         self.logs_dir = workspace / "output" / "logs"
         self.coordination_log = self.logs_dir / "coordination.log"
         self.agent_results: List[Dict[str, Any]] = []
-        
+
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.logs_dir.mkdir(parents=True, exist_ok=True)
 
@@ -110,7 +110,7 @@ Your output should include:
                     "response_length": len(response.get("response", "")),
                     "tokens_used": response.get("usage", {}).get("total_tokens", 0),
                 }
-                
+
                 usage = response.get("usage", {})
                 aggregated["statistics"]["total_thinking_tokens"] += usage.get("completion_tokens", 0)
                 aggregated["statistics"]["total_completion_tokens"] += usage.get("completion_tokens", 0)

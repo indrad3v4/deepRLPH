@@ -1,70 +1,34 @@
 {
   "user_stories": [
     {
-      "id": "CAUSAL-001",
-      "title": "Implement CausalDAIN for prefix-only normalization",
-      "description": "Replace current DAIN with a strictly causal variant that computes normalization statistics (mean/std) only from timesteps 0..t (inclusive) for each timestep t, ensuring no future information leaks. Must integrate with existing normalization interface.",
+      "id": "EXEC-001",
+      "title": "Fix DAIN input dimension mismatch in CausalLOBForecaster",
+      "description": "Update the feature splitting logic in CausalLOBForecaster to correctly assign 26 features to the DAIN normalization layer when the total input dimension is 40. Adjust slice indices or compute dynamic splits based on input_dim to ensure DAIN receives the expected 26 features instead of 14, resolving the dimension mismatch crash during training.",
       "acceptance_criteria": [
-        "CausalDAIN class implements same interface as existing DAIN",
-        "Normalization at timestep t uses only prefix x[:, :t+1] for statistics",
-        "Forward pass produces same output shape as original DAIN",
-        "Gradient flow remains correct for training"
+        "CausalLOBForecaster can be instantiated with input_dim=40 without errors.",
+        "Forward pass with a random tensor of shape (batch, seq_len, 40) completes without dimension mismatch errors.",
+        "During forward pass, the input tensor to DAIN normalization has exactly 26 feature dimensions as verified by shape checks."
       ],
-      "verification": "Unit test: generate random sequence, compute CausalDAIN output, manually verify each timestep's statistics match prefix-only calculation.",
-      "status": "todo"
+      "verification": "python -c \"import torch; from src.models.causal_lob_forecaster import CausalLOBForecaster; model = CausalLOBForecaster(input_dim=40); x = torch.randn(2, 10, 40); out = model(x); assert out is not None, 'Forward pass failed'; print('Forward pass successful')\"",
+      "status": "failed",
+      "passes": false,
+      "attempts": 1,
+      "errors": [
+        "[agent_1] \nTraceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n  File \"/Users/fedorvabisevic/Documents/Programms/deepRLPH/venv/lib/python3.9/site-packages/torch/nn/modules/module.py\", line 1511, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n  File \"/Users/fedorvabisevic/Documents/Programms/deepRLPH/venv/lib/python3.9/site-packages/torch/nn/modules/module.py\", line 1520, in _call_impl\n    return forward_call(*args, **kwargs)\n  File \"/Users/fedorvabisevic/Documents/Programms/deepRLPH/workspace/projects/wundernn_time_series_forecaste_20260222_232308/src/models/causal_lob_forecaster.py\", line 583, in forward\n    ask_norm = self.ask_dain(ask_data)\n  File \"/Users/fedorvabisevic/Documents/Programms/deepRLPH/venv/lib/python3.9/site-packages/torch/nn/modules/module.py\", line 1511, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n  File \"/Users/fedorvabisevic/Documents/Programms/deepRLPH/venv/lib/python3.9/site-packages/torch/nn/modules/module.py\""
+      ]
     },
     {
-      "id": "CAUSAL-002",
-      "title": "Enforce causal masks in all attention/T-KAN layers",
-      "description": "Audit all attention and T-KAN layers in CausalLOBForecaster (and any subcomponents) to ensure strict causal masking: each timestep t can only attend to timesteps <= t. Replace any full-context attention with causal variants.",
+      "id": "EXEC-002",
+      "title": "Add unit test for CausalLOBForecaster dimension handling and causality",
+      "description": "Extend the existing test file tests/test_causal_lob_forecaster.py with a new test that verifies the model correctly handles input dimensions and maintains causality. This test will use random tensors to check input-output shapes and ensure no future leakage, preventing regression of dimension-related issues.",
       "acceptance_criteria": [
-        "All attention layers use torch.tril causal masks",
-        "T-KAN temporal convolutions use causal padding (pad left only)",
-        "No global pooling operations that aggregate future information",
-        "Siamese feature extractor processes each timestep independently"
+        "New test function test_causal_lob_forecaster_dimensions passes when run with pytest.",
+        "Test asserts that model output shape is correct for a given input shape (e.g., (batch, seq_len, input_dim)).",
+        "Test includes a causality check, such as verifying that predictions do not depend on future time steps via masking or gradient analysis."
       ],
-      "verification": "Component test: for each layer, corrupt future inputs and verify early outputs unchanged (max diff < 1e-6).",
-      "status": "todo"
-    },
-    {
-      "id": "CAUSAL-003",
-      "title": "Integrate causal components into CausalLOBForecaster",
-      "description": "Replace existing DAIN and any non-causal layers in ML-005 CausalLOBForecaster with the causal versions from CAUSAL-001 and CAUSAL-002. Update model initialization and forward pass accordingly.",
-      "acceptance_criteria": [
-        "CausalLOBForecaster uses CausalDAIN instead of DAIN",
-        "All submodules (attention, T-KAN, fusion) are causal",
-        "Model maintains same input/output interface",
-        "Training mode still works with causal constraints"
-      ],
-      "verification": "Run full model forward pass with fixed seeds, compare outputs before/after future corruption (early 10 timesteps must match within 1e-5).",
-      "status": "todo"
-    },
-    {
-      "id": "CAUSAL-004",
-      "title": "Add rigorous causality verification test",
-      "description": "Create pytest test that constructs CausalLOBForecaster in eval mode with fixed seeds, runs 'corrupt future timesteps' test, and checks early outputs remain unchanged within explicit tolerance (atol=1e-5, rtol=1e-3).",
-      "acceptance_criteria": [
-        "Test sets torch manual seed and model.eval()",
-        "Test corrupts inputs after timestep 10 by adding noise",
-        "Checks torch.allclose(out1[:, :10, :], out2[:, :10, :], atol=1e-5, rtol=1e-3)",
-        "Test passes only if causality holds"
-      ],
-      "verification": "Run pytest src/models/test_causality.py -v and see test pass.",
-      "status": "todo"
-    },
-    {
-      "id": "CAUSAL-005",
-      "title": "Regenerate models and run full council verification",
-      "description": "After implementing causal fixes, regenerate ML-005 (CausalLOBForecaster) and ML-007 (T_KAN) code, then run council verification to ensure causality test passes and existing functionality remains intact.",
-      "acceptance_criteria": [
-        "Council run completes without crashes (exit_code=0)",
-        "Causality verification test passes",
-        "Other existing tests (e.g., training step) still pass",
-        "Model performance metrics remain within acceptable bounds"
-      ],
-      "verification": "Run full council script and check exit code 0 with all tests passing.",
+      "verification": "python -m pytest tests/test_causal_lob_forecaster.py::test_causal_lob_forecaster_dimensions -xvs",
       "status": "todo"
     }
   ],
-  "total_items": 5
+  "total_items": 2
 }
