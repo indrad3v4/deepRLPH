@@ -1500,7 +1500,7 @@ class RalphUI(tk.Tk):
         threading.Thread(target=run_and_stream, daemon=True).start()
 
     def _on_process_crash(self, exit_code: int, output_tail: str) -> None:
-        """Store crash snapshot and optionally trigger DARIZ fix (Stage 4 DR4-01a)."""
+        """Store crash snapshot and optionally trigger DARIZ fix (Stage 4 DR4-01a/b)."""
         try:
             self.last_crash_snapshot = {
                 "exit_code": exit_code,
@@ -1514,11 +1514,11 @@ class RalphUI(tk.Tk):
             "Process crashed",
             "Обнаружен сбой целевого скрипта.\n\n"
             "Снимок лога сохранён для DARIZ-анализа.\n\n"
-            "Запустить сейчас DARIZ Auto-Fix (без автозапуска агентов)?",
+            "Запустить сейчас DARIZ Auto-Fix в режиме Model Council с автозапуском агентов?",
         )
         if answer:
             try:
-                self._trigger_dariz_fix(auto_execute=False)
+                self._trigger_dariz_fix(auto_execute=True)
             except Exception as e:
                 logger.error("Failed to trigger DARIZ after crash: %s", e, exc_info=True)
                 messagebox.showerror("DARIZ Error", f"Не удалось запустить DARIZ Auto-Fix:\n{e}")
@@ -1533,9 +1533,11 @@ class RalphUI(tk.Tk):
                 self.live_terminal.insert('end', f"\n[SYSTEM ERROR] Could not kill process: {e}\n", 'error')
 
     def _trigger_dariz_fix(self, auto_execute=False):
-        """
-        Phase 3: DARIZ Refinement Engine (Updated for Workflow Streamlining).
-        Automates 8-step Kukalev TRIZ analysis and generates an executable PRD fix.
+        """DARIZ Refinement Engine wired to orchestrator.run_dariz_fix.
+
+        Uses crash snapshots + HITL strategy to request a deepRLPH-compatible
+        JSON PRD fix from the central orchestrator, then optionally routes
+        directly into Model Council execution.
         """
         terminal_dump = self.live_terminal.get("1.0", "end").strip()[-2000:]
         exec_dump = ""
@@ -1544,104 +1546,114 @@ class RalphUI(tk.Tk):
 
         user_strategy = self.hitl_feedback.get("1.0", "end").strip()
 
-        if not terminal_dump and not exec_dump and not user_strategy:
-            messagebox.showwarning("Empty Feedback", "Provide strategic hints or run a process to capture tracebacks.")
+        if not terminal_dump and not exec_dump and not user_strategy and not self.last_crash_snapshot:
+            messagebox.showwarning(
+                "Empty Feedback",
+                "Provide strategic hints, run a process to capture tracebacks, or rerun after a crash.",
+            )
             return
 
-        # 🧠 UI Step 1: Notify the user about the Kukalev TRIZ execution
         if auto_execute:
-            msg = "Engaging DARIZ Auto-Fix.\n\nExecuting 8-step TRIZ analysis and re-configuring for Model Council..."
+            msg = (
+                "Engaging DARIZ Auto-Fix.\n\n"
+                "Executing 8-step TRIZ analysis and re-configuring for Model Council + agents run..."
+            )
         else:
-            msg = "Engaging DARIZ Engine.\n\nGenerating resolution strategy..."
+            msg = "Engaging DARIZ Engine.\n\nGenerating resolution strategy and PRD update..."
 
         messagebox.showinfo("DARIZ Engine", msg)
 
         async def run_dariz_analysis():
-            logger.info("🧠 [DARIZ Engine] Initiating 8-step Kukalev TRIZ analysis...")
+            logger.info("🧠 [DARIZ Engine] Initiating Kukalev TRIZ analysis via orchestrator.run_dariz_fix...")
 
-            # System prompt mandates a strict deepRLPH-compatible JSON PRD output
-            system_prompt = self._get_dariz_system_prompt()
-            user_message = f"TERMINAL TRACEBACK:\n{terminal_dump}\n\nAGENT LOGS:\n{exec_dump}\n\nSTRATEGY:\n{user_strategy}"
+            crash_snapshot = dict(self.last_crash_snapshot or {})
+            if terminal_dump:
+                crash_snapshot["terminal_dump"] = terminal_dump
+            if exec_dump:
+                crash_snapshot["exec_logs"] = exec_dump
+            if user_strategy:
+                crash_snapshot["user_strategy"] = user_strategy
+            if "exit_code" not in crash_snapshot:
+                crash_snapshot["exit_code"] = 1
 
             try:
-                result = await self.orchestrator.deepseek_client.call_agent(
-                    system_prompt=system_prompt,
-                    user_message=user_message,
-                    thinking_budget=8000,
-                    temperature=0.3
+                result = await self.orchestrator.run_dariz_fix(
+                    crash_snapshot=crash_snapshot,
+                    strategy_text=user_strategy,
+                    auto_execute=auto_execute,
                 )
 
-                if result['status'] == 'success':
-                    dariz_strategy = result['response']
+                if result.get("status") != "success":
+                    err = result.get("error", "DARIZ engine failed")
+                    self.after(0, lambda: messagebox.showerror("DARIZ Error", err))
+                    return
 
-                    # 🛠️ SMART FIX 1: Robust JSON Extraction (Improved Regex)
-                    json_prd = None
-                    json_content = ""
+                normalized_prd = result.get("prd")
+                mode = result.get("mode", "council")
+                try:
+                    num_agents = int(result.get("num_agents", 4) or 4)
+                except Exception:
+                    num_agents = 4
+                raw_response = result.get("raw_response", "")
 
-                    # Try finding JSON block with or without explicit language tags
-                    json_match = re.search(r'```(?:json)?\s*(.*?)\s*```', dariz_strategy, re.DOTALL)
-                    if json_match:
-                        json_content = json_match.group(1).strip()
-                    else:
-                        # Fallback: scan for literal JSON boundaries { ... }
-                        start_idx = dariz_strategy.find('{')
-                        end_idx = dariz_strategy.rfind('}') + 1
-                        if start_idx != -1 and end_idx != 0:
-                            json_content = dariz_strategy[start_idx:end_idx]
+                def update_ui():
+                    try:
+                        if normalized_prd and getattr(self.orchestrator, 'current_project_dir', None):
+                            self.current_prd = normalized_prd
+                            prd_file = self.orchestrator.current_project_dir / "prd.json"
+                            with open(prd_file, 'w', encoding='utf-8') as f:
+                                json.dump(normalized_prd, f, indent=2)
 
-                    if json_content:
+                            if hasattr(self, 'prd_preview'):
+                                self.prd_preview.delete('1.0', 'end')
+                                self.prd_preview.insert('1.0', json.dumps(normalized_prd, indent=2))
+
+                        if auto_execute and result.get("auto_execute"):
+                            logger.info("🚀 [DARIZ Engine] Auto-configuring Execution tab for Model Council fix...")
+                            try:
+                                self.exec_mode_var.set(mode)
+                                self.mode_cb.set(mode)
+                            except Exception:
+                                pass
+                            try:
+                                self.agents_var.set(str(num_agents))
+                                self._last_valid_agents = num_agents
+                                self._update_agents_hint()
+                            except Exception:
+                                pass
+
+                            try:
+                                self.notebook.select(3)  # Execution tab
+                            except Exception:
+                                pass
+                            self._execute_agents()
+                            return
+
+                        # Fallback: route to Project Refinement with DARIZ narrative
                         try:
-                            json_prd = json.loads(json_content)
-                            logger.info("✅ [DARIZ Engine] Successfully parsed executable JSON PRD.")
-                        except json.JSONDecodeError as e:
-                            logger.warning(f"⚠️ [DARIZ Engine] JSON decode failed: {e}")
+                            self.notebook.select(2)
+                        except Exception:
+                            pass
 
-                    # 🚀 UI Step 2: Handle Auto-Routing and Deployment
-                    def update_ui():
-                        try:
-                            if json_prd and getattr(self.orchestrator, 'current_project_dir', None):
-                                normalized_prd = self.orchestrator._normalize_prd_for_engine(json_prd)
-                                self.current_prd = normalized_prd
+                        if hasattr(self, 'task_text'):
+                            self.task_text.delete('1.0', 'end')
+                            if raw_response:
+                                self.task_text.insert(
+                                    '1.0',
+                                    f"=== KUKALEV DARIZ STRATEGY ===\n{raw_response}",
+                                )
+                            else:
+                                self.task_text.insert(
+                                    '1.0',
+                                    "DARIZ completed. Review the updated PRD in the PRD Preview section.",
+                                )
 
-                                # Overwrite the PRD on disk to maintain source of truth
-                                prd_file = self.orchestrator.current_project_dir / "prd.json"
-                                with open(prd_file, 'w', encoding='utf-8') as f:
-                                    json.dump(normalized_prd, f, indent=2)
+                        self.hitl_feedback.delete('1.0', 'end')
+                        messagebox.showinfo("DARIZ Engine", "Analysis complete. PRD updated.")
+                    except Exception as e:
+                        logger.error("❌ [DARIZ Engine] UI Update failed: %s", e, exc_info=True)
 
-                                if hasattr(self, 'prd_preview'):
-                                    self.prd_preview.delete('1.0', 'end')
-                                    self.prd_preview.insert('1.0', json.dumps(normalized_prd, indent=2))
-
-                                if auto_execute:
-                                    logger.info("🚀 [DARIZ Engine] Smart-configuring for Model Council fix...")
-
-                                    # 🛠️ SMART FIX 2: Automatic Expert Re-Configuration
-                                    # Fixes require deep sequential reasoning (Mixture of Experts)
-                                    self.exec_mode_var.set('council')
-                                    self.mode_cb.set('council')
-                                    self.agents_var.set('4')
-                                    self._last_valid_agents = 4
-                                    self._update_agents_hint()
-
-                                    # Switch screen and auto-fire
-                                    self.notebook.select(3)  # Move to Execution tab
-                                    self._execute_agents()
-                                    return
-
-                            self.notebook.select(2)  # Route to Project Refinement
-                            if hasattr(self, 'task_text'):
-                                self.task_text.delete('1.0', 'end')
-                                self.task_text.insert('1.0', f"=== KUKALEV DARIZ STRATEGY ===\n{dariz_strategy}")
-
-                            self.hitl_feedback.delete('1.0', 'end')
-                            messagebox.showinfo("DARIZ Engine", "Analysis complete. PRD updated.")
-
-                        except Exception as e:
-                            logger.error(f"❌ [DARIZ Engine] UI Update failed: {e}")
-
-                    self.after(0, update_ui)
-                else:
-                    self.after(0, lambda: messagebox.showerror("DARIZ Error", f"API Error: {result.get('error')}"))
+                self.after(0, update_ui)
             except Exception as e:
                 self.after(0, lambda: messagebox.showerror("DARIZ Error", f"Analysis failed: {e}"))
 
@@ -1829,7 +1841,7 @@ class RalphUI(tk.Tk):
                 num_agents=num_agents,
                 execution_mode=mode,
                 log_callback=log_cb,
-                progress_callback=progress_cb
+                progress_callback=progress_cb,
             )
             self.after(0, lambda: self.exec_btn.config(state='normal'))
             self.execution_running = False

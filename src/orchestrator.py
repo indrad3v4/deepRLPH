@@ -228,6 +228,7 @@ class RalphOrchestrator:
         num_agents: int = 4,
         execution_mode: str = "parallel",
         log_callback: Optional[Callable[[str], Any]] = None,
+        progress_callback: Optional[Callable[[float], Any]] = None,
     ) -> Dict:
         """Transactional execution loop with Mode Routing."""
         try:
@@ -261,6 +262,7 @@ class RalphOrchestrator:
                 prd_partitions={"stories": canonical_prd["user_stories"]},
                 num_agents=num_agents,
                 execution_mode=execution_mode,
+                progress_callback=progress_callback,
                 log_callback=log_callback,
             )
         except Exception as e:
@@ -309,9 +311,10 @@ class RalphOrchestrator:
             user_message_parts: List[str] = []
             if context_summary:
                 user_message_parts.append(f"PROJECT CONTEXT:\n{context_summary}")
-            if exit_code is not None or output_tail:
+            if exit_code is not None or output_tail or terminal_dump:
+                crash_block = output_tail or terminal_dump
                 user_message_parts.append(
-                    f"CRASH INFO (exit_code={exit_code}):\n" f"{output_tail or terminal_dump}"
+                    f"CRASH INFO (exit_code={exit_code}):\n" f"{crash_block}"
                 )
             if exec_logs:
                 user_message_parts.append(f"EXECUTION LOGS (agents / council):\n{exec_logs}")
@@ -362,6 +365,7 @@ class RalphOrchestrator:
                 "mode": "council",
                 "num_agents": 4,
                 "auto_execute": bool(auto_execute),
+                "raw_response": dariz_reply,
             }
         except Exception as e:
             logger.error("DARIZ run_dariz_fix failed: %s", e, exc_info=True)
