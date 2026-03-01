@@ -428,3 +428,16 @@ Traceback (most recent call last):
   File "<string>", line 1, in <module>
 AssertionError: Causality violated!
 
+
+[2026-03-01 02:07:55] ML-005 - FAILED
+[agent=agent_2] Command failed with code 1:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+AssertionError: Causality violated!
+
+
+[2026-03-01 02:17:22] ML-005 - SUCCESS
+[agent=agent_3] Verification passed. Metric: N/A
+
+[2026-03-01 02:28:20] ML-006 - SUCCESS
+[agent=agent_1] Verification passed. Metric: N/A

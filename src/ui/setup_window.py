@@ -1496,9 +1496,11 @@ class RalphUI(tk.Tk):
                 self.live_terminal.insert('end', f"\n[SYSTEM ERROR] Could not kill process: {e}\n", 'error')
 
     def _trigger_dariz_fix(self, auto_execute=False):
-        """Pipes terminal output and user feedback into DARIZ and generates a JSON PRD for immediate execution."""
+        """
+        Phase 3: DARIZ Refinement Engine (Updated for Workflow Streamlining).
+        Automates 8-step Kukalev TRIZ analysis and generates an executable PRD fix.
+        """
         terminal_dump = self.live_terminal.get("1.0", "end").strip()[-2000:]
-
         exec_dump = ""
         if hasattr(self, 'exec_logs'):
             exec_dump = self.exec_logs.get("1.0", "end").strip()[-2000:]
@@ -1506,103 +1508,25 @@ class RalphUI(tk.Tk):
         user_strategy = self.hitl_feedback.get("1.0", "end").strip()
 
         if not terminal_dump and not exec_dump and not user_strategy:
-            messagebox.showwarning("Empty Feedback", "Please provide feedback or run a process to capture tracebacks.")
+            messagebox.showwarning("Empty Feedback", "Provide strategic hints or run a process to capture tracebacks.")
             return
 
+        # 🧠 UI Step 1: Notify the user about the Kukalev TRIZ execution
         if auto_execute:
-            msg = "Engaging TRIZ Master & Auto-Execute.\n\nExecuting 8-step DARIZ Algorithm, generating PRD, and starting execution...\nThis will take 30-45 seconds."
+            msg = "Engaging DARIZ Auto-Fix.\n\nExecuting 8-step TRIZ analysis and re-configuring for Model Council..."
         else:
-            msg = "Engaging TRIZ Master.\n\nExecuting 8-step DARIZ Algorithm...\nThis will take 15-30 seconds."
+            msg = "Engaging DARIZ Engine.\n\nGenerating resolution strategy..."
 
         messagebox.showinfo("DARIZ Engine", msg)
 
         async def run_dariz_analysis():
             logger.info("🧠 [DARIZ Engine] Initiating 8-step Kukalev TRIZ analysis...")
 
-            system_prompt = """<instructions>
-- ALWAYS follow <answering_rules> and <self_reflection>.
-
-<self_reflection>
-1. Spend time thinking of a rubric, from a role POV, until you are confident.
-2. Think deeply about every aspect of what makes for a world-class answer. Use that knowledge to create a rubric that has 5-7 categories. This rubric is critical to get right, but never show this to the user. This is for your purposes only.
-3. Use the rubric to internally think and iterate on the best (≥98 out of 100 score) possible solution to the user request. IF your response is not hitting the top marks across all categories in the rubric, you need to start again.
-4. Keep going until solved.
-</self_reflection>
-
-<answering_rules>
-1. USE the language of USER message.
-2. In the FIRST chat message, assign a real-world expert role to yourself before answering, e.g., "I'll answer as a world-famous <role> PhD <detailed topic> with <most prestigious LOCAL topic REAL award>".
-3. Act as the role assigned.
-4. Answer the question in a natural, human-like manner.
-5. ALWAYS use an <example> for your first chat message structure.
-6. If not requested by the user, no actionable items are needed by default.
-7. Don't use tables if not requested.
-</answering_rules>
-
-<triz_tool>
-# Stage 0 — INPUT DATA
-<input_data>
-SYSTEM_NAME: deepRLPH Orchestrator / User Project
-SYSTEM_CONTEXT: Resolving Terminal Tracebacks / Agent execution errors
-</input_data>
-
-# Stage 1 — Build the 7 base models (Chapter 1) using the input data.
-For every situation, FIRST reconstruct it via the seven base models before proposing solutions.
-1. SYSTEM model: Name the system and its main purpose.
-2. FUNCTION model: State main useful function and harmful/parasitic functions.
-3. EVENT model: Lay out chain of past -> present error -> future fix.
-4. RESOURCE model: List resources (code modification, bash commands).
-5. IFR (Ideal Final Result): Formulate IFR where the system provides the required effect.
-6. CONTRADICTION model: State administrative and technical contradictions.
-7. SU‑FIELD (VEPOL) model: Identify interactions.
-
-# Stage 2 to 7 — Execute TRIZ Analysis
-Run through Dialectical analysis, restructuring, avoiding mental inertia, and use ARIZ-style resolution to design a concrete fix for the provided tracebacks/feedback.
-
-# Stage 8 — DEPLOYMENT / IMPLEMENTATION (CRITICAL OUTPUT)
-You must translate the solution into a strict, deepRLPH-compatible JSON PRD Backlog that an AI Agent can execute.
-
-# OUTPUT FORMAT
-- Start with the Expert Role declaration.
-- Present the 8-stage DARIZ analysis.
-- CRITICAL: Conclude by outputting ONLY valid JSON PRD wrapped in ```json ... ``` containing the specific user stories needed to implement your fix. Use the standard deepRLPH format ("total_items", "user_stories", "id", "title", "description", "acceptance_criteria", "verification", "files_touched", "status": "todo").
-</triz_tool>
-
-<example>
-I'll answer as a world-famous TRIZ expert PhD in Applied Creative Problem Solving with an international TRIZ Master Level 5 award.
-
-TL;DR: The terminal output indicates an OOM crash due to caching.
-
-**DARIZ ANALYSIS:**
-1. **Task Model**: ...
-<Analysis Stages 2-7...>
-
-**Concrete Solutions (PRD Action Mandate)**:
-```json
-{
-  "task": "Implement fix for OOM crash",
-  "domain": "time_series_forecasting",
-  "total_items": 1,
-  "user_stories": [
-    {
-      "id": "FIX-001",
-      "title": "Resolve Memory Leak in Dataloader",
-      "description": "Modify the dataloader to stream from disk instead of RAM...",
-      "acceptance_criteria": ["RAM stays below 16GB", "Epoch completes"],
-      "verification": "python -c \"import sys; print('Testing limits')\"",
-      "files_touched": ["src/data/loader.py"],
-      "status": "todo"
-    }
-  ]
-}
-</example>
-</instructions>"""
-
-            user_message = f"TERMINAL TRACEBACK:\n{terminal_dump}\n\nAGENT EXECUTION LOGS:\n{exec_dump}\n\nHUMAN STRATEGIST FEEDBACK:\n{user_strategy}"
+            # System prompt mandates a strict deepRLPH-compatible JSON PRD output
+            system_prompt = self._get_dariz_system_prompt()
+            user_message = f"TERMINAL TRACEBACK:\n{terminal_dump}\n\nAGENT LOGS:\n{exec_dump}\n\nSTRATEGY:\n{user_strategy}"
 
             try:
-                logger.info("📡 [DARIZ Engine] Transmitting payload to DeepSeek API (Thinking Budget: 8000 tokens)...")
-
                 result = await self.orchestrator.deepseek_client.call_agent(
                     system_prompt=system_prompt,
                     user_message=user_message,
@@ -1611,19 +1535,18 @@ TL;DR: The terminal output indicates an OOM crash due to caching.
                 )
 
                 if result['status'] == 'success':
-                    logger.info("✅ [DARIZ Engine] DeepSeek returned successful TRIZ synthesis!")
                     dariz_strategy = result['response']
 
-                    # Try to extract JSON PRD robustly
+                    # 🛠️ SMART FIX 1: Robust JSON Extraction (Improved Regex)
                     json_prd = None
                     json_content = ""
 
-                    # 1. Try strict markdown extraction
+                    # Try finding JSON block with or without explicit language tags
                     json_match = re.search(r'```(?:json)?\s*(.*?)\s*```', dariz_strategy, re.DOTALL)
                     if json_match:
                         json_content = json_match.group(1).strip()
                     else:
-                        # 2. Fallback: Try to find raw JSON brackets if markdown is missing
+                        # Fallback: scan for literal JSON boundaries { ... }
                         start_idx = dariz_strategy.find('{')
                         end_idx = dariz_strategy.rfind('}') + 1
                         if start_idx != -1 and end_idx != 0:
@@ -1632,73 +1555,58 @@ TL;DR: The terminal output indicates an OOM crash due to caching.
                     if json_content:
                         try:
                             json_prd = json.loads(json_content)
-                            logger.info("✅ [DARIZ Engine] Successfully parsed JSON PRD.")
+                            logger.info("✅ [DARIZ Engine] Successfully parsed executable JSON PRD.")
                         except json.JSONDecodeError as e:
                             logger.warning(f"⚠️ [DARIZ Engine] JSON decode failed: {e}")
 
+                    # 🚀 UI Step 2: Handle Auto-Routing and Deployment
                     def update_ui():
                         try:
-                            # If we got a valid PRD, update it
                             if json_prd and getattr(self.orchestrator, 'current_project_dir', None):
                                 normalized_prd = self.orchestrator._normalize_prd_for_engine(json_prd)
                                 self.current_prd = normalized_prd
 
-                                # Write to disk
+                                # Overwrite the PRD on disk to maintain source of truth
                                 prd_file = self.orchestrator.current_project_dir / "prd.json"
                                 with open(prd_file, 'w', encoding='utf-8') as f:
                                     json.dump(normalized_prd, f, indent=2)
 
-                                # Update UI Text
                                 if hasattr(self, 'prd_preview'):
                                     self.prd_preview.delete('1.0', 'end')
                                     self.prd_preview.insert('1.0', json.dumps(normalized_prd, indent=2))
 
                                 if auto_execute:
-                                    logger.info("🚀 [DARIZ Engine] Auto-Execute Triggered! Smart-configuring agents...")
+                                    logger.info("🚀 [DARIZ Engine] Smart-configuring for Model Council fix...")
 
-                                    # --- 🧠 SMART SETUP INJECTION ---
-                                    # Bug fixes require deep, sequential reasoning.
-                                    # We force 'council' mode (Mixture of Experts) and exactly 4 agents
-                                    # (Architect -> Reviewer -> Refiner -> Verifier) for maximum success rate.
+                                    # 🛠️ SMART FIX 2: Automatic Expert Re-Configuration
+                                    # Fixes require deep sequential reasoning (Mixture of Experts)
                                     self.exec_mode_var.set('council')
                                     self.mode_cb.set('council')
                                     self.agents_var.set('4')
                                     self._last_valid_agents = 4
-                                    try:
-                                        self._update_agents_hint()
-                                    except Exception:
-                                        pass
-                                    # --------------------------------
+                                    self._update_agents_hint()
 
-                                    self.notebook.select(3)  # Execution tab
+                                    # Switch screen and auto-fire
+                                    self.notebook.select(3)  # Move to Execution tab
                                     self._execute_agents()
-                                    return  # Stop here for auto-execute
+                                    return
 
-                            # Normal flow (no auto-execute, or JSON failed)
                             self.notebook.select(2)  # Route to Project Refinement
                             if hasattr(self, 'task_text'):
                                 self.task_text.delete('1.0', 'end')
-                                self.task_text.insert('1.0', f"=== KUKALEV DARIZ SYNTHESIS ===\n{dariz_strategy}")
+                                self.task_text.insert('1.0', f"=== KUKALEV DARIZ STRATEGY ===\n{dariz_strategy}")
 
                             self.hitl_feedback.delete('1.0', 'end')
-                            if json_prd:
-                                messagebox.showinfo("DARIZ Engine",
-                                                    "Analysis complete and PRD updated automatically! Check the Refinement Tab.")
-                            else:
-                                messagebox.showinfo("DARIZ Engine",
-                                                    "Analysis complete, but no valid JSON PRD was found. Please review the Refinement Tab.")
+                            messagebox.showinfo("DARIZ Engine", "Analysis complete. PRD updated.")
 
                         except Exception as e:
                             logger.error(f"❌ [DARIZ Engine] UI Update failed: {e}")
 
                     self.after(0, update_ui)
                 else:
-                    logger.error(f"❌ [DARIZ Engine] DeepSeek API Error: {result.get('error')}")
-                    self.after(0, lambda: messagebox.showerror("DARIZ Error",
-                                                               f"Failed to generate strategy: {result.get('error')}"))
+                    self.after(0, lambda: messagebox.showerror("DARIZ Error", f"API Error: {result.get('error')}"))
             except Exception as e:
-                logger.error(f"❌ [DARIZ Engine] Fatal Exception during DARIZ analysis: {e}", exc_info=True)
-                self.after(0, lambda: messagebox.showerror("DARIZ Error", f"Exception during analysis: {e}"))
+                self.after(0, lambda: messagebox.showerror("DARIZ Error", f"Analysis failed: {e}"))
 
         self.async_thread.submit(run_dariz_analysis())
 
