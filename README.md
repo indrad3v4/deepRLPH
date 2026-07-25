@@ -97,3 +97,10 @@ Check the `docs/` folder for detailed [Implementation Summaries](https://www.goo
 ```
 
 ```
+
+---
+
+<p align="center">
+  <sub>built by <a href="https://github.com/indrad3v4">indradev_</a> · 
+  <a href="https://buymeacoffee.com/indradev_">☕ support</a></sub>
+</p>
